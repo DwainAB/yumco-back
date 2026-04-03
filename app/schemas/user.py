@@ -7,6 +7,8 @@ class UserCreate(BaseModel):
     first_name: str
     last_name: str
     phone : str | None = None
+    restaurant_id: int
+    role: str
 
 class UserLogin(BaseModel):
     email: EmailStr
@@ -31,3 +33,4 @@ class UserUpdate(BaseModel):
     expo_push_token: str | None = None
     email : EmailStr | None = None
     password : str | None = None
+    role: str | None = None
