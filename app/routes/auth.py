@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
-from pydantic import EmailStr 
+from pydantic import EmailStr
 from app.db.database import get_db
 from app.schemas.user import UserCreate, UserResponse, UserLogin, UserUpdate
 from app.services.user_service import get_user_by_email, get_user_by_id, create_user, update_user, delete_user, generate_password
@@ -11,82 +11,81 @@ from app.services.email_service import send_email
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
-# Register a new user
+def check_permission(current_user: User, restaurant_id: int, db: Session):
+    if current_user.is_admin:
+        return
+    role = db.query(Role).filter(Role.user_id == current_user.id, Role.restaurant_id == restaurant_id).first()
+    if not role or role.type not in ["owner", "manager"]:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not allowed")
+
 @router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
-async def register(user: UserCreate, db:Session = Depends(get_db)):
+async def register(user: UserCreate, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    check_permission(current_user, user.restaurant_id, db)
     existing_user = get_user_by_email(db, user.email)
     if existing_user:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Email already registered"
-        )
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Email already registered")
     return await create_user(db, user)
 
-#Login and get access token
 @router.post("/login")
-def login(user:UserLogin, db:Session = Depends(get_db)):
+def login(user: UserLogin, db: Session = Depends(get_db)):
     db_user = get_user_by_email(db, user.email)
     if not db_user or not verify_password(user.password, db_user.hashed_password):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid email or password"
-        )
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid email or password")
     token = create_access_token(data={"sub": db_user.email})
-    return {"access_token" : token, "token_type": "bearer"}
+    return {"access_token": token, "token_type": "bearer"}
 
-
-@router.get('/me', response_model=UserResponse)
+@router.get("/me", response_model=UserResponse)
 def me(current_user: User = Depends(get_current_user)):
     return current_user
 
-#Update current user
-@router.put('/me', response_model=UserResponse)
+@router.put("/me", response_model=UserResponse)
 def update_me(data: UserUpdate, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     return update_user(db, current_user, data, current_user)
 
-#Delete current user
-@router.delete('/me', status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/me", status_code=status.HTTP_204_NO_CONTENT)
 def delete_me(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     delete_user(db, current_user)
 
-# Update a user (owner or manager only)
 @router.put("/users/{user_id}", response_model=UserResponse)
 def update_user_by_id(user_id: int, data: UserUpdate, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    current_role = db.query(Role).filter(Role.user_id == current_user.id).first()
-    if not current_role or current_role.type not in ["owner", "manager"]:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not allowed")
     user = get_user_by_id(db, user_id)
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+    user_role = db.query(Role).filter(Role.user_id == user.id).first()
+    if user_role:
+        check_permission(current_user, user_role.restaurant_id, db)
+    elif not current_user.is_admin:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not allowed")
     return update_user(db, user, data, current_user)
 
-# Delete a user (owner or manager only)
 @router.delete("/users/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_user_by_id(user_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    current_role = db.query(Role).filter(Role.user_id == current_user.id).first()
-    if not current_role or current_role.type not in ["owner", "manager"]:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not allowed")
     user = get_user_by_id(db, user_id)
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+    user_role = db.query(Role).filter(Role.user_id == user.id).first()
+    if user_role:
+        check_permission(current_user, user_role.restaurant_id, db)
+    elif not current_user.is_admin:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not allowed")
     delete_user(db, user)
 
-
-# Reset password - sends a new temporary password
 @router.post("/reset-password")
-async def reset_password(email : EmailStr, db: Session = Depends(get_db)):
+async def reset_password(email: EmailStr, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     user = get_user_by_email(db, email)
-    if not user : 
+    if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
-
+    user_role = db.query(Role).filter(Role.user_id == user.id).first()
+    if user_role:
+        check_permission(current_user, user_role.restaurant_id, db)
+    elif not current_user.is_admin:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not allowed")
     new_password = generate_password()
     user.hashed_password = hash_password(new_password)
     db.commit()
-
     await send_email(
         to=user.email,
         subject="Réinitialisation de votre mot de passe Yumco",
         body=f"<h1>Bonjour {user.first_name},</h1><p>Votre nouveau mot de passe temporaire : <strong>{new_password}</strong></p>"
     )
-
     return {"message": "Password reset and email sent successfully"}

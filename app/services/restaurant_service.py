@@ -3,6 +3,9 @@ from app.models.restaurant import Restaurant
 from app.models.role import Role
 from app.schemas.restaurant import RestaurantCreate, RestaurantUpdate
 from app.models.address import Address
+from app.models.restaurant_config import RestaurantConfig
+from app.models.delivery_tiers import DeliveryTier
+from app.models.opening_hours import OpeningHours
 
 
 #Get all restaurants (Admin)
@@ -43,6 +46,25 @@ def create_restaurant(db: Session, data: RestaurantCreate):
     db.add(restaurant)
     db.commit()
     db.refresh(restaurant)
+
+    config_data = data.config.model_dump(exclude_unset=True) if data.config else {}
+    config = RestaurantConfig(restaurant_id=restaurant.id, **config_data)
+    db.add(config)
+    db.commit()
+    db.refresh(restaurant)
+
+    if data.delivery_tiers:
+        for tier in data.delivery_tiers:
+            db.add(DeliveryTier(restaurant_id=restaurant.id, **tier.model_dump()))
+        db.commit()
+        db.refresh(restaurant)
+    
+    if data.opening_hours:
+        for hours in data.opening_hours:
+            db.add(OpeningHours(restaurant_id=restaurant.id, **hours.model_dump()))
+        db.commit()
+        db.refresh(restaurant)
+        
     return restaurant
 
 #Delete a restaurant
@@ -59,9 +81,26 @@ def update_restaurant(db: Session, restaurant: Restaurant, data: RestaurantUpdat
             for field, value in data.address.model_dump(exclude_unset=True).items():
                 setattr(address, field, value)
 
+    if data.config:
+        config = db.query(RestaurantConfig).filter(RestaurantConfig.restaurant_id == restaurant.id).first()
+        if config:
+            for field, value in data.config.model_dump(exclude_unset=True).items():
+                setattr(config, field, value)
+
+    if data.delivery_tiers is not None:
+        db.query(DeliveryTier).filter(DeliveryTier.restaurant_id == restaurant.id).delete()
+        for tier in data.delivery_tiers:
+            db.add(DeliveryTier(restaurant_id=restaurant.id, **tier.model_dump()))
+
+    if data.opening_hours is not None:
+        db.query(OpeningHours).filter(OpeningHours.restaurant_id == restaurant.id).delete()
+        for hours in data.opening_hours:
+            db.add(OpeningHours(restaurant_id=restaurant.id, **hours.model_dump()))
+
     for field, value in data.model_dump(exclude_unset=True).items():
-        if field != "address":
+        if field not in ["address", "config", "delivery_tiers", "opening_hours"]:
             setattr(restaurant, field, value)
+
     db.commit()
     db.refresh(restaurant)
     return restaurant

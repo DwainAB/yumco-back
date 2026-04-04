@@ -15,3 +15,6 @@ class Restaurant(Base):
     stripe_id=Column(String, nullable=True)
     is_deleted=Column(Boolean, default=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+    config = relationship("RestaurantConfig", uselist=False)
+    delivery_tiers = relationship("DeliveryTier")
+    opening_hours = relationship("OpeningHours")
