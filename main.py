@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 from app.routes import auth, restaurant
+from app.services.email_service import send_email
 
 #Create the FastAPI application
 app = FastAPI(title="Yumco API", version="1.0.0")
@@ -12,3 +13,12 @@ app.include_router(restaurant.router)
 @app.get("/")
 def root():
     return {"message": "Yumco API is running"}
+
+@app.get('/test-email')
+async def test_email(email: str):
+    await send_email(
+        to=email,
+        subject="Test Email",
+        body="<h1>This is a test email</h1>"
+    )
+    return {"message": "Test email sent"}

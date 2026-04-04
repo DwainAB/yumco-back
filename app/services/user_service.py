@@ -4,6 +4,14 @@ from app.models.user import User
 from app.models.role import Role
 from app.schemas.user import UserCreate, UserUpdate
 from app.core.security import hash_password
+from app.services.email_service import send_email
+import secrets
+import string
+
+#Generate password
+def generate_password(length: int = 12) -> str:
+    characters = string.ascii_letters + string.digits + "!@#$%"
+    return ''.join(secrets.choice(characters) for _ in range(length))
 
 #Get a user by email
 def get_user_by_email(db: Session, email: str):
@@ -14,8 +22,9 @@ def get_user_by_id(db: Session, user_id: int):
     return db.query(User).filter(User.id == user_id).first()
 
 #Create a user
-def create_user(db: Session, user: UserCreate):
-    hashed = hash_password(user.password)
+async def create_user(db: Session, user: UserCreate):
+    password = generate_password()
+    hashed = hash_password(password)
     db_user = User(
         email=user.email,
         hashed_password=hashed,
@@ -31,6 +40,14 @@ def create_user(db: Session, user: UserCreate):
     role= Role(user_id=db_user.id, restaurant_id=user.restaurant_id, type=user.role)
     db.add(role)
     db.commit()
+
+    #Send password by email
+    await send_email(
+        to=user.email,
+        subject="Bienvenue sur Yumco",
+        body=f"<h1>Bonjour {user.first_name},</h1><p>Votre mot de passe temporaire : <strong>{password}</strong></p>"
+    )
+
     return db_user
 
 #update a user
