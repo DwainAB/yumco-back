@@ -3,7 +3,7 @@ from decimal import Decimal
 from datetime import datetime
 
 class MenuOptionCreate(BaseModel):
-    name: str
+    name: str | None = None
     additional_price: Decimal = Decimal("0")
     display_order: int = 0
     product_id: int | None = None
