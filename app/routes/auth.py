@@ -1,11 +1,13 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
+from pydantic import EmailStr 
 from app.db.database import get_db
 from app.schemas.user import UserCreate, UserResponse, UserLogin, UserUpdate
-from app.services.user_service import get_user_by_email, get_user_by_id, create_user, update_user, delete_user
-from app.core.security import verify_password, create_access_token, get_current_user
+from app.services.user_service import get_user_by_email, get_user_by_id, create_user, update_user, delete_user, generate_password
+from app.core.security import verify_password, create_access_token, get_current_user, hash_password
 from app.models.user import User
 from app.models.role import Role
+from app.services.email_service import send_email
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -68,3 +70,23 @@ def delete_user_by_id(user_id: int, current_user: User = Depends(get_current_use
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
     delete_user(db, user)
+
+
+# Reset password - sends a new temporary password
+@router.post("/reset-password")
+async def reset_password(email : EmailStr, db: Session = Depends(get_db)):
+    user = get_user_by_email(db, email)
+    if not user : 
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+    new_password = generate_password()
+    user.hashed_password = hash_password(new_password)
+    db.commit()
+
+    await send_email(
+        to=user.email,
+        subject="Réinitialisation de votre mot de passe Yumco",
+        body=f"<h1>Bonjour {user.first_name},</h1><p>Votre nouveau mot de passe temporaire : <strong>{new_password}</strong></p>"
+    )
+
+    return {"message": "Password reset and email sent successfully"}

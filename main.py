@@ -1,5 +1,5 @@
 from fastapi import FastAPI
-from app.routes import auth, restaurant
+from app.routes import auth, restaurant, admin
 from app.services.email_service import send_email
 
 #Create the FastAPI application
@@ -8,6 +8,7 @@ app = FastAPI(title="Yumco API", version="1.0.0")
 #register routers
 app.include_router(auth.router)
 app.include_router(restaurant.router)
+app.include_router(admin.router)
 
 #Health check
 @app.get("/")
