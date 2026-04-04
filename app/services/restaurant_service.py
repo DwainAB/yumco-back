@@ -2,6 +2,7 @@ from sqlalchemy.orm import Session
 from app.models.restaurant import Restaurant
 from app.models.role import Role
 from app.schemas.restaurant import RestaurantCreate, RestaurantUpdate
+from app.models.address import Address
 
 
 #Get all restaurants (Admin)
@@ -22,10 +23,22 @@ def get_restaurants_by_user(db: Session, user_id: int):
 
 #Create a restaurant
 def create_restaurant(db: Session, data: RestaurantCreate):
+    #Create address first
+    address = Address(
+        street=data.address.street,
+        city=data.address.city,
+        postal_code=data.address.postal_code,
+        country=data.address.country
+    )
+    db.add(address)
+    db.commit()
+    db.refresh(address)
+
     restaurant = Restaurant(
         name=data.name,
         email=data.email,
         phone=data.phone,
+        address_id=address.id
     )
     db.add(restaurant)
     db.commit()
@@ -39,9 +52,16 @@ def delete_restaurant(db: Session, restaurant: Restaurant):
 
 
 #Update a restaurant
-def update_restaurant(db:Session, restaurant: Restaurant, data: RestaurantUpdate):
+def update_restaurant(db: Session, restaurant: Restaurant, data: RestaurantUpdate):
+    if data.address:
+        address = db.query(Address).filter(Address.id == restaurant.address_id).first()
+        if address:
+            for field, value in data.address.model_dump(exclude_unset=True).items():
+                setattr(address, field, value)
+
     for field, value in data.model_dump(exclude_unset=True).items():
-        setattr(restaurant, field, value)
+        if field != "address":
+            setattr(restaurant, field, value)
     db.commit()
     db.refresh(restaurant)
     return restaurant
