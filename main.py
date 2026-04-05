@@ -1,5 +1,5 @@
 from fastapi import FastAPI
-from app.routes import auth, restaurant, admin, product, menu, upload
+from app.routes import auth, restaurant, admin, product, menu, upload, all_you_can_eat, table, reservation
 from app.services.email_service import send_email
 
 #Create the FastAPI application
@@ -12,6 +12,9 @@ app.include_router(admin.router)
 app.include_router(product.router)
 app.include_router(menu.router)
 app.include_router(upload.router)
+app.include_router(all_you_can_eat.router)
+app.include_router(table.router)
+app.include_router(reservation.router)
 
 #Health check
 @app.get("/")
