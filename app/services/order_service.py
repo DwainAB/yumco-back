@@ -20,10 +20,15 @@ def generate_order_number(first_name: str) -> str:
 
 
 def create_order(db: Session, restaurant_id: int, data: OrderCreate) -> Order:
-    # 1. Create customer
-    customer = Customer(restaurant_id=restaurant_id, **data.customer.model_dump())
-    db.add(customer)
-    db.flush()
+    # 1. Create customer (not required for onsite)
+    customer_id = None
+    if data.type != "onsite":
+        if not data.customer:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Customer is required for delivery and pickup orders")
+        customer = Customer(restaurant_id=restaurant_id, **data.customer.model_dump())
+        db.add(customer)
+        db.flush()
+        customer_id = customer.id
 
     # 2. Create address if delivery
     address_id = None
@@ -36,9 +41,10 @@ def create_order(db: Session, restaurant_id: int, data: OrderCreate) -> Order:
         address_id = address.id
 
     # 3. Generate unique order number
-    order_number = generate_order_number(data.customer.first_name)
+    first_name = data.customer.first_name if data.customer else "X"
+    order_number = generate_order_number(first_name)
     while db.query(Order).filter(Order.order_number == order_number).first():
-        order_number = generate_order_number(data.customer.first_name)
+        order_number = generate_order_number(first_name)
 
     # 4. Process items and calculate total
     amount_total = 0
@@ -110,7 +116,7 @@ def create_order(db: Session, restaurant_id: int, data: OrderCreate) -> Order:
     order = Order(
         order_number=order_number,
         restaurant_id=restaurant_id,
-        customer_id=customer.id,
+        customer_id=customer_id,
         type=data.type,
         comment=data.comment,
         requested_time=data.requested_time,

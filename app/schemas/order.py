@@ -17,7 +17,7 @@ class OrderCreate(BaseModel):
     requested_time: datetime | None = None
     table_id: int | None = None
     address: AddressCreate | None = None  # required if type == delivery
-    customer: CustomerCreate
+    customer: CustomerCreate | None = None  # not required for onsite
     items: list[OrderItemCreate]
 
 class OrderUpdate(BaseModel):
