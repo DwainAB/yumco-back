@@ -2,6 +2,7 @@ from pydantic import BaseModel
 from datetime import datetime
 from app.schemas.customer import CustomerCreate, CustomerResponse
 from app.schemas.address import AddressCreate, AddressResponse
+from app.schemas.user import UserBrief
 
 class OrderItemCreate(BaseModel):
     product_id: int | None = None
@@ -19,6 +20,12 @@ class OrderCreate(BaseModel):
     address: AddressCreate | None = None  # required if type == delivery
     customer: CustomerCreate | None = None  # not required for onsite
     items: list[OrderItemCreate]
+
+class OrderStatusUpdate(BaseModel):
+    status: str  # preparing | completed | cancelled
+    preparing_by: int | None = None
+    preparation_time: int | None = None  # minutes, pour l'email uniquement
+
 
 class OrderUpdate(BaseModel):
     status: str | None = None
@@ -60,6 +67,7 @@ class OrderResponse(BaseModel):
     address_id: int | None = None
     table_id: int | None = None
     preparing_by: int | None = None
+    prepared_by_user: UserBrief | None = None
     customer: CustomerResponse | None = None
     address: AddressResponse | None = None
     items: list[OrderItemResponse] = []

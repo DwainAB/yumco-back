@@ -59,12 +59,20 @@ async def send_order_confirmed(order, restaurant):
     )
 
 
-async def send_order_preparing(order, restaurant):
+async def send_order_preparing(order, restaurant, preparation_time: int | None = None):
     if not order.customer or not order.customer.email:
         return
+    if preparation_time is None and restaurant.config:
+        preparation_time = restaurant.config.preparation_time
+    if preparation_time:
+        display_time = "1h" if preparation_time >= 60 else f"{preparation_time} minutes"
+        time_line = f"<p>Temps de préparation estimé : <strong>{display_time}</strong></p>"
+    else:
+        time_line = ""
     body = f"""
     <p>Bonjour <strong>{order.customer.first_name}</strong>,</p>
     <p>Bonne nouvelle ! Votre commande <strong>{order.order_number}</strong> est actuellement en cours de préparation.</p>
+    {time_line}
     <p>Nous faisons tout pour vous la préparer dans les meilleurs délais.</p>
     <p><em>L'équipe {restaurant.name}</em></p>
     """

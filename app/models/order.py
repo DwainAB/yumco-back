@@ -25,3 +25,4 @@ class Order(Base):
     items = relationship("OrderItem", cascade="all, delete-orphan")
     customer = relationship("Customer")
     address = relationship("Address")
+    prepared_by_user = relationship("User", foreign_keys=[preparing_by])

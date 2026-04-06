@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from app.db.database import get_db
 from app.models.order import Order
 from app.models.restaurant import Restaurant
-from app.schemas.order import OrderCreate, OrderUpdate, OrderResponse
+from app.schemas.order import OrderCreate, OrderUpdate, OrderResponse, OrderStatusUpdate
 from app.core.security import get_current_user
 from app.models.user import User
 from app.services.order_service import create_order
@@ -78,6 +78,35 @@ def get_receipt(restaurant_id: int, order_id: int, current_user: User = Depends(
     pdf = generate_receipt(order, restaurant)
     filename = f"ticket_{order.order_number.replace('#', '')}.pdf"
     return StreamingResponse(pdf, media_type="application/pdf", headers={"Content-Disposition": f"inline; filename={filename}"})
+
+
+@router.post("/{restaurant_id}/orders/{order_id}/status", response_model=OrderResponse)
+def update_order_status(restaurant_id: int, order_id: int, data: OrderStatusUpdate, background_tasks: BackgroundTasks, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    order = db.query(Order).filter(Order.id == order_id, Order.restaurant_id == restaurant_id).first()
+    if not order:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+
+    order.status = data.status
+
+    if data.status == "preparing":
+        order.preparing_by = data.preparing_by or current_user.id
+    elif data.status == "completed":
+        from datetime import datetime, timezone
+        order.completed_at = datetime.now(timezone.utc)
+
+    db.commit()
+    db.refresh(order)
+
+    restaurant = db.query(Restaurant).filter(Restaurant.id == restaurant_id).first()
+
+    if data.status == "preparing":
+        background_tasks.add_task(send_order_preparing, order, restaurant, data.preparation_time)
+    elif data.status == "completed":
+        background_tasks.add_task(send_order_completed, order, restaurant)
+    elif data.status == "cancelled":
+        background_tasks.add_task(send_order_cancelled, order, restaurant)
+
+    return order
 
 
 @router.delete("/{restaurant_id}/orders/{order_id}", status_code=status.HTTP_204_NO_CONTENT)

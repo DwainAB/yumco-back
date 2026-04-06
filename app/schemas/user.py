@@ -8,6 +8,16 @@ class RoleInfo(BaseModel):
     class Config:
         from_attributes = True
 
+class UserBrief(BaseModel):
+    id: int
+    first_name: str
+    last_name: str
+    phone: str | None = None
+
+    class Config:
+        from_attributes = True
+
+
 class UserCreate(BaseModel):
     email: EmailStr
     first_name: str
