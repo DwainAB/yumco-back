@@ -1,7 +1,7 @@
 from pydantic import BaseModel
 from datetime import datetime
-from app.schemas.customer import CustomerCreate
-from app.schemas.address import AddressCreate
+from app.schemas.customer import CustomerCreate, CustomerResponse
+from app.schemas.address import AddressCreate, AddressResponse
 
 class OrderItemCreate(BaseModel):
     product_id: int | None = None
@@ -60,6 +60,8 @@ class OrderResponse(BaseModel):
     address_id: int | None = None
     table_id: int | None = None
     preparing_by: int | None = None
+    customer: CustomerResponse | None = None
+    address: AddressResponse | None = None
     items: list[OrderItemResponse] = []
     created_at: datetime
 

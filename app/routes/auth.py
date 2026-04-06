@@ -38,6 +38,7 @@ def login(user: UserLogin, db: Session = Depends(get_db)):
 def me(current_user: User = Depends(get_current_user)):
     return current_user
 
+
 @router.put("/me", response_model=UserResponse)
 def update_me(data: UserUpdate, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     return update_user(db, current_user, data, current_user)

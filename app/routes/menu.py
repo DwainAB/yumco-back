@@ -9,11 +9,11 @@ from app.models.user import User
 router = APIRouter(prefix="/restaurants", tags=["menus"])
 
 @router.get("/{restaurant_id}/menus", response_model=list[MenuResponse])
-def list_menus(restaurant_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+def list_menus(restaurant_id: int, db: Session = Depends(get_db)):
     return get_menus(db, restaurant_id)
 
 @router.get("/{restaurant_id}/menus/{menu_id}", response_model=MenuResponse)
-def get_one_menu(restaurant_id: int, menu_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+def get_one_menu(restaurant_id: int, menu_id: int, db: Session = Depends(get_db)):
     menu = get_menu(db, menu_id)
     if not menu or menu.restaurant_id != restaurant_id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Menu not found")

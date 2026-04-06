@@ -12,7 +12,7 @@ from app.models.user import User
 router = APIRouter(prefix="/restaurants", tags=["products"])
 
 @router.get("/{restaurant_id}/categories", response_model=list[CategoryResponse])
-def list_categories(restaurant_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+def list_categories(restaurant_id: int, db: Session = Depends(get_db)):
     return get_categories(db, restaurant_id)
 
 @router.post("/{restaurant_id}/categories", response_model=CategoryResponse, status_code=status.HTTP_201_CREATED)
@@ -34,11 +34,11 @@ def remove_category(restaurant_id: int, category_id: int, current_user: User = D
     delete_category(db, category)
 
 @router.get("/{restaurant_id}/products", response_model=list[ProductResponse])
-def list_products(restaurant_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+def list_products(restaurant_id: int, db: Session = Depends(get_db)):
     return get_products(db, restaurant_id)
 
 @router.get("/{restaurant_id}/products/{product_id}", response_model=ProductResponse)
-def get_one_product(restaurant_id: int, product_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+def get_one_product(restaurant_id: int, product_id: int, db: Session = Depends(get_db)):
     product = get_product(db, product_id)
     if not product or product.restaurant_id != restaurant_id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Product not found")

@@ -14,6 +14,7 @@ class RestaurantConfigResponse(BaseModel):
     a_la_carte: bool
     payment_online: bool
     payment_onsite: bool
+    max_delivery_km: int | None = None
 
     class Config:
         from_attributes = True
@@ -30,3 +31,4 @@ class RestaurantConfigUpdate(BaseModel):
     a_la_carte: bool | None = None
     payment_online: bool | None = None
     payment_onsite: bool | None = None
+    max_delivery_km: int | None = None

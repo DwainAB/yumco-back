@@ -27,3 +27,6 @@ class RestaurantConfig(Base):
     # Payment options
     payment_online = Column(Boolean, default=False)
     payment_onsite = Column(Boolean, default=False)
+
+    # Delivery zone
+    max_delivery_km = Column(Integer, nullable=True)

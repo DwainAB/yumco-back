@@ -33,10 +33,18 @@ def generate_receipt(order, restaurant) -> BytesIO:
         y -= 4 * mm
 
     # --- En-tête ---
-    line(restaurant.name, size=14, bold=True, center=True, gap=6)
+    line(restaurant.name, size=14, bold=True, center=True, gap=4)
+    line(f"Commande : {order.order_number}", bold=True, size=10, center=True, gap=4)
 
     type_label = {"delivery": "Livraison", "pickup": "À emporter", "onsite": "Sur place"}.get(order.type, order.type)
     line(type_label, size=10, center=True, gap=4)
+
+    created = order.created_at.strftime("%d/%m/%Y à %H:%M")
+    line(f"Date : {created}", size=8, center=True, gap=4)
+
+    if order.requested_time:
+        requested = order.requested_time.strftime("%d/%m/%Y à %H:%M")
+        line(f"À préparer pour : {requested}", size=8, center=True, gap=4)
 
     # Numéro de table en gros si onsite
     if order.type == "onsite" and order.table_id:
@@ -46,18 +54,6 @@ def generate_receipt(order, restaurant) -> BytesIO:
         y -= 8 * mm
 
     separator()
-
-    # --- Numéro de commande + date ---
-    line(f"Commande : {order.order_number}", bold=True, size=10, gap=4)
-
-    created = order.created_at.strftime("%d/%m/%Y à %H:%M")
-    line(f"Date : {created}", size=8, gap=4)
-
-    if order.requested_time:
-        requested = order.requested_time.strftime("%d/%m/%Y à %H:%M")
-        line(f"À préparer pour : {requested}", size=8, gap=4)
-
-    separator(dash=True)
 
     # --- Infos client (delivery / pickup uniquement) ---
     if order.type in ("delivery", "pickup") and order.customer:
@@ -110,20 +106,32 @@ def generate_receipt(order, restaurant) -> BytesIO:
     c.drawRightString(width - 10 * mm, y, f"{float(order.amount_total):.2f} €")
     y -= 6 * mm
 
-    payment_labels = {
-        "unpaid": "Non payé",
-        "awaiting_payment": "En attente de paiement",
-        "pending": "En attente",
-        "refunded": "Remboursé"
-    }
-    payment_label = payment_labels.get(order.payment_status, order.payment_status)
-    line(f"Paiement : {payment_label}", size=8, gap=6)
+    if order.type != "onsite":
+        payment_labels = {
+            "unpaid": "Non payé",
+            "awaiting_payment": "En attente de paiement",
+            "pending": "En attente",
+            "refunded": "Remboursé"
+        }
+        payment_label = payment_labels.get(order.payment_status, order.payment_status)
+        line(f"Paiement : {payment_label}", size=8, gap=6)
 
     separator(dash=True)
 
     # --- Pied de page ---
     line("Merci pour votre commande !", size=8, center=True, gap=4)
-    line("Propulsé par Yumco", size=7, center=True, gap=4)
+    # "Propulsé par " + "Yumco" en gras
+    prefix = "Propulsé par "
+    c.setFont("Helvetica", 7)
+    prefix_width = c.stringWidth(prefix, "Helvetica", 7)
+    c.setFont("Helvetica-Bold", 7)
+    yumco_width = c.stringWidth("Yumco", "Helvetica-Bold", 7)
+    start_x = (width - prefix_width - yumco_width) / 2
+    c.setFont("Helvetica", 7)
+    c.drawString(start_x, y, prefix)
+    c.setFont("Helvetica-Bold", 7)
+    c.drawString(start_x + prefix_width, y, "Yumco")
+    y -= 4 * mm
 
     c.save()
     buffer.seek(0)

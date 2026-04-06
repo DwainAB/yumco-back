@@ -1,9 +1,18 @@
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from app.routes import auth, restaurant, admin, product, menu, upload, all_you_can_eat, table, reservation, customer, order
 from app.services.email_service import send_email
 
 #Create the FastAPI application
 app = FastAPI(title="Yumco API", version="1.0.0")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 #register routers
 app.include_router(auth.router)
