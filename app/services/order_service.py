@@ -112,7 +112,14 @@ def create_order(db: Session, restaurant_id: int, data: OrderCreate) -> Order:
         else:
             raise HTTPException(status_code=400, detail="Each item must have a product_id, menu_id, or all_you_can_eat_id")
 
-    # 5. Create order
+    # 5. Vérifier que la table existe et appartient au restaurant
+    if data.table_id:
+        from app.models.table import Table
+        table = db.query(Table).filter(Table.id == data.table_id, Table.restaurant_id == restaurant_id).first()
+        if not table:
+            raise HTTPException(status_code=400, detail=f"Table {data.table_id} not found for this restaurant")
+
+    # 6. Create order
     order = Order(
         order_number=order_number,
         restaurant_id=restaurant_id,
@@ -127,7 +134,7 @@ def create_order(db: Session, restaurant_id: int, data: OrderCreate) -> Order:
     db.add(order)
     db.flush()
 
-    # 6. Create order items
+    # 7. Create order items
     for item_data in processed_items:
         options = item_data.pop("options")
         order_item = OrderItem(order_id=order.id, **item_data)

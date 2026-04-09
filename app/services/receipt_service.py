@@ -1,5 +1,6 @@
 from io import BytesIO
 from datetime import datetime, timezone
+from reportlab.lib.pagesizes import A6
 from reportlab.lib.units import mm
 from reportlab.pdfgen import canvas
 from reportlab.lib import colors
@@ -59,9 +60,7 @@ def generate_receipt(order, restaurant) -> BytesIO:
     line(type_label, size=9, center=True, gap=4)
 
     if order.type == "onsite" and order.table_id:
-        c.setFont("Helvetica-Bold", 16)
-        c.drawCentredString(width / 2, y, f"Table {order.table_id}")
-        y -= 8 * mm
+        line(f"Table {order.table_id}", size=8, center=True, gap=3)
 
     separator()
 
@@ -168,20 +167,11 @@ def generate_table_ticket(table, restaurant) -> BytesIO:
     c.drawCentredString(width / 2, y, restaurant.name)
     y -= 10 * mm
 
-    # Label "TABLE"
-    c.setFont("Helvetica-Bold", 14)
-    c.drawCentredString(width / 2, y, "TABLE")
-    y -= 18 * mm
-
     # Numéro de table en très grand
+    y -= 15 * mm
     c.setFont("Helvetica-Bold", 72)
     c.drawCentredString(width / 2, y, str(table.table_number))
-    y -= 20 * mm
-
-    # Capacité
-    c.setFont("Helvetica", 10)
-    c.drawCentredString(width / 2, y, f"{table.number_of_people} personnes")
-    y -= 8 * mm
+    y -= 28 * mm
 
     # Emplacement si défini
     if table.location:

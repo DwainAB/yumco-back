@@ -13,6 +13,7 @@ class Restaurant(Base):
     address_id= Column(Integer, ForeignKey("addresses.id"), nullable=True)
     address = relationship("Address")
     stripe_id=Column(String, nullable=True)
+    timezone=Column(String, nullable=False, default="Europe/Paris")
     is_deleted=Column(Boolean, default=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     config = relationship("RestaurantConfig", uselist=False)

@@ -21,6 +21,7 @@ class RestaurantUpdate(BaseModel):
     email : EmailStr | None = None
     phone : str | None = None
     stripe_id: str | None = None
+    timezone: str | None = None
     address: AddressUpdate | None = None
     config: RestaurantConfigUpdate | None = None
     delivery_tiers: list[DeliveryTierCreate] | None = None
@@ -32,6 +33,7 @@ class RestaurantResponse(BaseModel):
     name: str
     email: EmailStr
     phone: str
+    timezone: str = "Europe/Paris"
     address: AddressResponse | None = None
     stripe_id: str | None = None
     created_at: datetime
