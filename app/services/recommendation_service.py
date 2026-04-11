@@ -146,37 +146,95 @@ def _get_popularity_counts(db: Session, restaurant_id: int) -> dict[int, int]:
     return {product_id: count for product_id, count in rows if product_id is not None}
 
 
-def _get_copurchase_counts(db: Session, restaurant_id: int, basket_product_ids: list[int]) -> dict[int, int]:
-    if not basket_product_ids:
+def _get_product_order_counts(db: Session, restaurant_id: int, product_ids: list[int]) -> dict[int, int]:
+    if not product_ids:
         return {}
-
-    matching_order_ids = (
-        db.query(OrderItem.order_id)
-        .join(Order, Order.id == OrderItem.order_id)
-        .filter(
-            Order.restaurant_id == restaurant_id,
-            Order.status != "cancelled",
-            OrderItem.product_id.in_(basket_product_ids),
-            OrderItem.parent_order_item_id.is_(None),
-        )
-        .distinct()
-        .subquery()
-    )
 
     rows = (
         db.query(OrderItem.product_id, func.count(func.distinct(OrderItem.order_id)).label("count"))
         .join(Order, Order.id == OrderItem.order_id)
         .filter(
             Order.restaurant_id == restaurant_id,
-            OrderItem.order_id.in_(matching_order_ids),
-            OrderItem.product_id.isnot(None),
+            Order.status != "cancelled",
             OrderItem.parent_order_item_id.is_(None),
-            ~OrderItem.product_id.in_(basket_product_ids),
+            OrderItem.product_id.in_(product_ids),
         )
         .group_by(OrderItem.product_id)
         .all()
     )
     return {product_id: count for product_id, count in rows if product_id is not None}
+
+
+def _get_copurchase_strengths(db: Session, restaurant_id: int, basket_product_ids: list[int]) -> dict[int, float]:
+    if not basket_product_ids:
+        return {}
+
+    basket_order_counts = _get_product_order_counts(db, restaurant_id, basket_product_ids)
+    rows = (
+        db.query(
+            OrderItem.product_id.label("basket_product_id"),
+            OrderItem.order_id.label("order_id"),
+        )
+        .join(Order, Order.id == OrderItem.order_id)
+        .filter(
+            Order.restaurant_id == restaurant_id,
+            OrderItem.product_id.isnot(None),
+            OrderItem.parent_order_item_id.is_(None),
+            OrderItem.product_id.in_(basket_product_ids),
+        )
+        .all()
+    )
+    basket_orders_map = defaultdict(set)
+    for basket_product_id, order_id in rows:
+        basket_orders_map[basket_product_id].add(order_id)
+
+    all_matching_order_ids = {
+        order_id
+        for order_ids in basket_orders_map.values()
+        for order_id in order_ids
+    }
+    if not all_matching_order_ids:
+        return {}
+
+    candidate_rows = (
+        db.query(OrderItem.order_id, OrderItem.product_id)
+        .join(Order, Order.id == OrderItem.order_id)
+        .filter(
+            Order.restaurant_id == restaurant_id,
+            OrderItem.parent_order_item_id.is_(None),
+            OrderItem.product_id.isnot(None),
+            OrderItem.order_id.in_(all_matching_order_ids),
+            ~OrderItem.product_id.in_(basket_product_ids),
+        )
+        .all()
+    )
+
+    order_candidates_map = defaultdict(set)
+    for order_id, product_id in candidate_rows:
+        order_candidates_map[order_id].add(product_id)
+
+    candidate_scores = defaultdict(float)
+    for basket_product_id, order_ids in basket_orders_map.items():
+        basket_order_count = basket_order_counts.get(basket_product_id, 0)
+        if basket_order_count == 0:
+            continue
+
+        candidate_occurrences = defaultdict(int)
+        for order_id in order_ids:
+            for candidate_product_id in order_candidates_map.get(order_id, set()):
+                candidate_occurrences[candidate_product_id] += 1
+
+        for candidate_product_id, occurrence_count in candidate_occurrences.items():
+            candidate_scores[candidate_product_id] += occurrence_count / basket_order_count
+
+    basket_size = len(basket_product_ids)
+    if basket_size == 0:
+        return {}
+
+    return {
+        candidate_product_id: score / basket_size
+        for candidate_product_id, score in candidate_scores.items()
+    }
 
 
 def get_product_recommendations(
@@ -249,9 +307,9 @@ def get_product_recommendations(
     )
 
     popularity_counts = _get_popularity_counts(db, restaurant_id)
-    copurchase_counts = _get_copurchase_counts(db, restaurant_id, basket_product_ids)
+    copurchase_strengths = _get_copurchase_strengths(db, restaurant_id, basket_product_ids)
     max_popularity = max(popularity_counts.values(), default=0)
-    max_copurchase = max(copurchase_counts.values(), default=0)
+    max_copurchase_strength = max(copurchase_strengths.values(), default=0.0)
 
     scored_candidates = []
     for candidate in candidate_rows:
@@ -267,9 +325,9 @@ def get_product_recommendations(
                 score += weight
                 reasons.append((reason, weight))
 
-        copurchase_count = copurchase_counts.get(candidate.id, 0)
-        if max_copurchase and copurchase_count:
-            weight = 0.35 * (copurchase_count / max_copurchase)
+        copurchase_strength = copurchase_strengths.get(candidate.id, 0.0)
+        if max_copurchase_strength and copurchase_strength:
+            weight = 0.35 * (copurchase_strength / max_copurchase_strength)
             score += weight
             reasons.append((REASON_LABELS["frequently_bought_together"], weight))
 
