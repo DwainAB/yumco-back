@@ -4,7 +4,9 @@ from decimal import Decimal
 from app.db.database import get_db
 from app.schemas.product import ProductCreate, ProductUpdate, ProductResponse
 from app.schemas.category import CategoryCreate, CategoryUpdate, CategoryResponse
+from app.schemas.recommendation import RecommendationRequest, RecommendationResponse
 from app.services.product_service import get_products, get_product, create_product, update_product, delete_product, get_categories, get_category, create_category, update_category, delete_category
+from app.services.recommendation_service import get_product_recommendations
 from app.services.cloudinary_service import upload_image
 from app.core.security import get_current_user
 from app.models.user import User
@@ -36,6 +38,13 @@ def remove_category(restaurant_id: int, category_id: int, current_user: User = D
 @router.get("/{restaurant_id}/products", response_model=list[ProductResponse])
 def list_products(restaurant_id: int, db: Session = Depends(get_db)):
     return get_products(db, restaurant_id)
+
+@router.post("/{restaurant_id}/products/recommendations", response_model=RecommendationResponse)
+def recommend_products(restaurant_id: int, data: RecommendationRequest, db: Session = Depends(get_db)):
+    try:
+        return get_product_recommendations(db, restaurant_id, data)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
 @router.get("/{restaurant_id}/products/{product_id}", response_model=ProductResponse)
 def get_one_product(restaurant_id: int, product_id: int, db: Session = Depends(get_db)):

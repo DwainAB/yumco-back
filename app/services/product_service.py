@@ -35,7 +35,7 @@ def get_category(db: Session, category_id: int):
     return db.query(Category).filter(Category.id == category_id).first()
 
 def create_category(db: Session, data: CategoryCreate, restaurant_id: int):
-    category = Category(name=data.name, restaurant_id=restaurant_id)
+    category = Category(name=data.name, kind=data.kind, restaurant_id=restaurant_id)
     db.add(category)
     db.commit()
     db.refresh(category)
