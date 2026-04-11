@@ -19,6 +19,34 @@ REASON_LABELS = {
     "popular_in_restaurant": "popular_in_restaurant",
 }
 
+
+REASON_CONTENT = {
+    "missing_starter": {
+        "title": "Ajoute une entree",
+        "message": "Cette entree complete bien les plats deja ajoutes au panier.",
+    },
+    "missing_drink": {
+        "title": "Ajoute une boisson",
+        "message": "Une boisson est souvent ajoutee avec ce type de commande.",
+    },
+    "missing_side": {
+        "title": "Ajoute un accompagnement",
+        "message": "Un accompagnement peut completer ce plat principal.",
+    },
+    "missing_dessert": {
+        "title": "Ajoute un dessert",
+        "message": "Un dessert est une bonne suggestion pour completer la commande.",
+    },
+    "frequently_bought_together": {
+        "title": "Souvent commande avec ce panier",
+        "message": "Ce produit est souvent achete avec les articles deja selectionnes.",
+    },
+    "popular_in_restaurant": {
+        "title": "Produit populaire",
+        "message": "Ce produit est souvent choisi par les clients du restaurant.",
+    },
+}
+
 def _build_missing_category_reasons(present_category_types: set[str]) -> list[tuple[str, str, float]]:
     reasons: list[tuple[str, str, float]] = []
 
@@ -210,6 +238,7 @@ def get_product_recommendations(
             continue
 
         primary_reason = max(reasons, key=lambda item: item[1])[0]
+        reason_content = REASON_CONTENT[primary_reason]
         scored_candidates.append(
             RecommendedProduct(
                 product_id=candidate.id,
@@ -220,6 +249,8 @@ def get_product_recommendations(
                 category_name=candidate.category_name,
                 score=round(score, 4),
                 reason=primary_reason,
+                title=reason_content["title"],
+                message=reason_content["message"],
             )
         )
 

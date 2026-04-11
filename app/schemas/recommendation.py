@@ -22,6 +22,8 @@ class RecommendedProduct(BaseModel):
     category_name: str | None = None
     score: float
     reason: str
+    title: str
+    message: str
 
 
 class RecommendationResponse(BaseModel):
