@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.routes import auth, restaurant, admin, product, menu, upload, all_you_can_eat, table, reservation, customer, order, revenue, performance, customer_analytics
+from app.routes import auth, restaurant, admin, product, menu, upload, all_you_can_eat, table, reservation, customer, order, revenue, performance, customer_analytics, subscription, ai
 from app.services.email_service import send_email
 
 #Create the FastAPI application
@@ -29,6 +29,8 @@ app.include_router(revenue.router)
 app.include_router(performance.router)
 app.include_router(customer_analytics.router)
 app.include_router(customer.router)
+app.include_router(subscription.router)
+app.include_router(ai.router)
 
 #Health check
 @app.get("/")

@@ -1,0 +1,63 @@
+from fastapi import HTTPException, status
+from sqlalchemy.orm import Session
+
+from app.models.ai_conversation import AIConversation
+from app.models.ai_conversation_message import AIConversationMessage
+
+
+def create_ai_conversation(db: Session, restaurant_id: int, user_id: int, title: str) -> AIConversation:
+    conversation = AIConversation(
+        restaurant_id=restaurant_id,
+        created_by_user_id=user_id,
+        title=title.strip(),
+    )
+    db.add(conversation)
+    db.commit()
+    db.refresh(conversation)
+    return conversation
+
+
+def list_ai_conversations(db: Session, restaurant_id: int) -> list[AIConversation]:
+    return (
+        db.query(AIConversation)
+        .filter(AIConversation.restaurant_id == restaurant_id)
+        .order_by(AIConversation.updated_at.desc(), AIConversation.created_at.desc())
+        .all()
+    )
+
+
+def get_ai_conversation(db: Session, restaurant_id: int, conversation_id: int) -> AIConversation:
+    conversation = (
+        db.query(AIConversation)
+        .filter(AIConversation.restaurant_id == restaurant_id, AIConversation.id == conversation_id)
+        .first()
+    )
+    if not conversation:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conversation not found")
+    return conversation
+
+
+def add_ai_conversation_message(
+    db: Session,
+    conversation: AIConversation,
+    role: str,
+    content: str,
+    input_tokens: int | None = None,
+    output_tokens: int | None = None,
+    total_tokens: int | None = None,
+) -> AIConversationMessage:
+    message = AIConversationMessage(
+        conversation_id=conversation.id,
+        role=role,
+        content=content,
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+        total_tokens=total_tokens,
+    )
+    db.add(message)
+    db.flush()
+    conversation.updated_at = message.created_at
+    db.commit()
+    db.refresh(message)
+    db.refresh(conversation)
+    return message

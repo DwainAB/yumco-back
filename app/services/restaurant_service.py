@@ -6,6 +6,7 @@ from app.models.address import Address
 from app.models.restaurant_config import RestaurantConfig
 from app.models.delivery_tiers import DeliveryTier
 from app.models.opening_hours import OpeningHours
+from app.services.subscription_service import PLAN_LIMITS, PLAN_TOKEN_LIMITS, apply_subscription_plan
 
 
 #Get all restaurants (Admin)
@@ -37,11 +38,18 @@ def create_restaurant(db: Session, data: RestaurantCreate):
     db.commit()
     db.refresh(address)
 
+    selected_plan = data.subscription_plan or "starter"
+
     restaurant = Restaurant(
         name=data.name,
         email=data.email,
         phone=data.phone,
-        address_id=address.id
+        address_id=address.id,
+        subscription_plan=selected_plan,
+        ai_monthly_quota=PLAN_LIMITS[selected_plan],
+        ai_usage_count=0,
+        ai_monthly_token_quota=PLAN_TOKEN_LIMITS[selected_plan],
+        ai_token_usage_count=0,
     )
     db.add(restaurant)
     db.commit()
@@ -75,6 +83,8 @@ def delete_restaurant(db: Session, restaurant: Restaurant):
 
 #Update a restaurant
 def update_restaurant(db: Session, restaurant: Restaurant, data: RestaurantUpdate):
+    update_data = data.model_dump(exclude_unset=True)
+
     if data.address:
         address = db.query(Address).filter(Address.id == restaurant.address_id).first()
         if address:
@@ -97,10 +107,14 @@ def update_restaurant(db: Session, restaurant: Restaurant, data: RestaurantUpdat
         for hours in data.opening_hours:
             db.add(OpeningHours(restaurant_id=restaurant.id, **hours.model_dump()))
 
-    for field, value in data.model_dump(exclude_unset=True).items():
-        if field not in ["address", "config", "delivery_tiers", "opening_hours"]:
+    for field, value in update_data.items():
+        if field not in ["address", "config", "delivery_tiers", "opening_hours", "subscription_plan"]:
             setattr(restaurant, field, value)
 
     db.commit()
     db.refresh(restaurant)
+
+    if "subscription_plan" in update_data:
+        return apply_subscription_plan(db, restaurant, update_data["subscription_plan"], update_data.get("ai_cycle_started_at"))
+
     return restaurant

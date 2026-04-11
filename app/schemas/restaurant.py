@@ -1,9 +1,21 @@
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, field_validator
 from datetime import datetime
 from app.schemas.address import AddressCreate, AddressUpdate, AddressResponse
 from app.schemas.restaurant_config import RestaurantConfigResponse, RestaurantConfigUpdate
 from app.schemas.delivery_tiers import DeliveryTierCreate, DeliveryTierResponse
 from app.schemas.opening_hours import OpeningHoursCreate, OpeningHoursResponse
+
+
+ALLOWED_SUBSCRIPTION_PLANS = {"starter", "pro_ai", "business_ai"}
+
+
+def _normalize_subscription_plan(value: str | None) -> str | None:
+    if value is None:
+        return value
+    normalized = value.strip().lower()
+    if normalized not in ALLOWED_SUBSCRIPTION_PLANS:
+        raise ValueError(f"subscription_plan must be one of: {', '.join(sorted(ALLOWED_SUBSCRIPTION_PLANS))}")
+    return normalized
 
 #Data required to create a restaurant
 class RestaurantCreate(BaseModel):
@@ -11,9 +23,17 @@ class RestaurantCreate(BaseModel):
     email: EmailStr
     phone: str
     address: AddressCreate
+    subscription_plan: str = "starter"
     config: RestaurantConfigUpdate | None = None
     delivery_tiers: list[DeliveryTierCreate] | None = None
     opening_hours: list[OpeningHoursCreate] | None = None
+
+    @field_validator("subscription_plan")
+    @classmethod
+    def validate_subscription_plan(cls, value: str) -> str:
+        normalized = _normalize_subscription_plan(value)
+        assert normalized is not None
+        return normalized
 
 #Data for updating a restaurant
 class RestaurantUpdate(BaseModel):
@@ -22,10 +42,21 @@ class RestaurantUpdate(BaseModel):
     phone : str | None = None
     stripe_id: str | None = None
     timezone: str | None = None
+    subscription_plan: str | None = None
+    ai_monthly_quota: int | None = None
+    ai_usage_count: int | None = None
+    ai_monthly_token_quota: int | None = None
+    ai_token_usage_count: int | None = None
+    ai_cycle_started_at: datetime | None = None
     address: AddressUpdate | None = None
     config: RestaurantConfigUpdate | None = None
     delivery_tiers: list[DeliveryTierCreate] | None = None
     opening_hours: list[OpeningHoursCreate] | None = None
+
+    @field_validator("subscription_plan")
+    @classmethod
+    def validate_subscription_plan(cls, value: str | None) -> str | None:
+        return _normalize_subscription_plan(value)
 
 #Data returned when fetching a restaurant
 class RestaurantResponse(BaseModel):
@@ -36,6 +67,12 @@ class RestaurantResponse(BaseModel):
     timezone: str = "Europe/Paris"
     address: AddressResponse | None = None
     stripe_id: str | None = None
+    subscription_plan: str
+    ai_monthly_quota: int
+    ai_usage_count: int
+    ai_monthly_token_quota: int
+    ai_token_usage_count: int
+    ai_cycle_started_at: datetime | None = None
     created_at: datetime
     config: RestaurantConfigResponse | None = None
     delivery_tiers: list[DeliveryTierResponse] = []
@@ -43,3 +80,31 @@ class RestaurantResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class RestaurantSubscriptionUpdate(BaseModel):
+    subscription_plan: str
+    ai_cycle_started_at: datetime | None = None
+
+    @field_validator("subscription_plan")
+    @classmethod
+    def validate_subscription_plan(cls, value: str) -> str:
+        normalized = _normalize_subscription_plan(value)
+        assert normalized is not None
+        return normalized
+
+
+class RestaurantSubscriptionUsage(BaseModel):
+    plan: str
+    monthly_quota: int
+    usage_count: int
+    usage_remaining: int
+    monthly_token_quota: int
+    token_usage_count: int
+    token_usage_remaining: int
+    cycle_started_at: datetime | None = None
+    cycle_ends_at: datetime | None = None
+    is_ai_enabled: bool
+    is_quota_reached: bool
+    is_token_quota_reached: bool
+    upgrade_message: str | None = None
