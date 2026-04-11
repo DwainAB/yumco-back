@@ -47,6 +47,12 @@ REASON_CONTENT = {
     },
 }
 
+
+MAX_STARTER_SUGGESTION_MAIN_COUNT = 2
+MAX_DESSERT_SUGGESTION_MAIN_COUNT = 3
+MAX_TOTAL_ITEMS_FOR_EXTRA_SUGGESTIONS = 6
+
+
 def _build_missing_category_reasons(present_category_types: set[str]) -> list[tuple[str, str, float]]:
     reasons: list[tuple[str, str, float]] = []
 
@@ -87,6 +93,41 @@ def _build_quantity_based_reasons(category_quantities: dict[str, int]) -> list[t
         reasons.append(("dessert", REASON_LABELS["missing_dessert"], 0.20))
 
     return reasons
+
+
+def _should_exclude_candidate(
+    candidate_category_type: str | None,
+    category_quantities: dict[str, int],
+    total_items_count: int,
+) -> bool:
+    main_count = category_quantities.get("main", 0)
+    starter_count = category_quantities.get("starter", 0)
+    side_count = category_quantities.get("side", 0)
+    dessert_count = category_quantities.get("dessert", 0)
+
+    if candidate_category_type == "starter":
+        if starter_count >= 1:
+            return True
+        if main_count > MAX_STARTER_SUGGESTION_MAIN_COUNT:
+            return True
+        if total_items_count >= MAX_TOTAL_ITEMS_FOR_EXTRA_SUGGESTIONS:
+            return True
+
+    if candidate_category_type == "dessert":
+        if dessert_count >= 1:
+            return True
+        if main_count > MAX_DESSERT_SUGGESTION_MAIN_COUNT:
+            return True
+        if total_items_count >= MAX_TOTAL_ITEMS_FOR_EXTRA_SUGGESTIONS:
+            return True
+
+    if candidate_category_type == "side" and side_count >= main_count and main_count > 0:
+        return True
+
+    if candidate_category_type == "drink" and category_quantities.get("drink", 0) >= main_count and main_count > 0:
+        return True
+
+    return False
 
 
 def _get_popularity_counts(db: Session, restaurant_id: int) -> dict[int, int]:
@@ -180,6 +221,7 @@ def get_product_recommendations(
         if product.category_kind is None:
             continue
         category_quantities[product.category_kind] += basket_quantities.get(product.id, 0)
+    total_items_count = sum(basket_quantities.values())
 
     missing_category_reasons = _build_quantity_based_reasons(category_quantities)
     if not missing_category_reasons:
@@ -216,6 +258,9 @@ def get_product_recommendations(
         score = 0.0
         reasons: list[tuple[str, float]] = []
         category_type = candidate.category_kind
+
+        if _should_exclude_candidate(category_type, category_quantities, total_items_count):
+            continue
 
         for missing_category_type, reason, weight in missing_category_reasons:
             if category_type == missing_category_type:
