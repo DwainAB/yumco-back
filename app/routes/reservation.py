@@ -1,10 +1,11 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from app.db.database import get_db
 from app.models.reservation import Reservation
 from app.schemas.reservation import ReservationCreate, ReservationUpdate, ReservationResponse
 from app.core.security import get_current_user
 from app.models.user import User
+from app.services.notification_service import notify_new_reservation
 
 router = APIRouter(prefix="/restaurants", tags=["reservations"])
 
@@ -20,11 +21,19 @@ def get_reservation(restaurant_id: int, reservation_id: int, current_user: User 
     return reservation
 
 @router.post("/{restaurant_id}/reservations", response_model=ReservationResponse, status_code=status.HTTP_201_CREATED)
-def create_reservation(restaurant_id: int, data: ReservationCreate, db: Session = Depends(get_db)):
+def create_reservation(restaurant_id: int, data: ReservationCreate, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
     reservation = Reservation(restaurant_id=restaurant_id, **data.model_dump())
     db.add(reservation)
     db.commit()
     db.refresh(reservation)
+    background_tasks.add_task(
+        notify_new_reservation,
+        restaurant_id,
+        reservation.full_name,
+        reservation.number_of_people,
+        str(reservation.reservation_date),
+        str(reservation.reservation_time)[:5],
+    )
     return reservation
 
 @router.put("/{restaurant_id}/reservations/{reservation_id}", response_model=ReservationResponse)

@@ -38,6 +38,8 @@ class UserResponse(BaseModel):
     phone: str | None = None
     created_at: datetime
     expo_push_token: str | None = None
+    notify_orders: bool = True
+    notify_reservations: bool = True
     is_admin: bool = False
     roles: list[RoleInfo] = []
 
@@ -49,6 +51,8 @@ class UserUpdate(BaseModel):
     last_name: str | None = None
     phone: str | None = None
     expo_push_token: str | None = None
+    notify_orders: bool | None = None
+    notify_reservations: bool | None = None
     email : EmailStr | None = None
     password : str | None = None
     role: str | None = None

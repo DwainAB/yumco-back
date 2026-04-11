@@ -38,6 +38,32 @@ async def send_expo_push(tokens: list[str], title: str, body: str, data: dict = 
         print(f"[notification_service] Erreur envoi push: {e}")
 
 
+async def notify_new_reservation(restaurant_id: int, full_name: str, number_of_people: int, reservation_date: str, reservation_time: str):
+    db = SessionLocal()
+    try:
+        users = (
+            db.query(User)
+            .join(Role, Role.user_id == User.id)
+            .filter(
+                Role.restaurant_id == restaurant_id,
+                Role.type.in_(["owner", "manager", "staff"]),
+                User.expo_push_token.isnot(None),
+                User.notify_reservations == True,
+            )
+            .all()
+        )
+        tokens = [u.expo_push_token for u in users if u.expo_push_token]
+    finally:
+        db.close()
+
+    await send_expo_push(
+        tokens=tokens,
+        title="Nouvelle réservation !",
+        body=f"{full_name} — {number_of_people} pers. le {reservation_date} à {reservation_time}",
+        data={"type": "new_reservation", "restaurant_id": restaurant_id},
+    )
+
+
 async def notify_new_order(restaurant_id: int, order_number: str):
     db = SessionLocal()
     try:
@@ -48,6 +74,7 @@ async def notify_new_order(restaurant_id: int, order_number: str):
                 Role.restaurant_id == restaurant_id,
                 Role.type.in_(["owner", "manager", "staff"]),
                 User.expo_push_token.isnot(None),
+                User.notify_orders == True,
             )
             .all()
         )

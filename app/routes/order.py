@@ -6,8 +6,10 @@ from app.models.order import Order
 from app.models.restaurant import Restaurant
 from app.models.opening_hours import OpeningHours
 from app.schemas.order import OrderCreate, OrderItemCreate, OrderUpdate, OrderResponse, OrderStatusUpdate
+from app.schemas.order_analytics import OrderAnalyticsResponse
 from app.core.security import get_current_user
 from app.models.user import User
+from app.services.order_analytics_service import get_order_analytics
 from app.services.order_service import create_order
 from app.services.receipt_service import generate_receipt
 from app.services.order_email_service import (
@@ -110,6 +112,14 @@ def list_orders(restaurant_id: int, table_id: int | None = Query(default=None), 
     if status_filter is not None:
         q = q.filter(Order.status == status_filter)
     return q.order_by(Order.created_at.desc()).all()
+
+
+@router.get("/{restaurant_id}/orders/analytics", response_model=OrderAnalyticsResponse)
+def get_orders_analytics(restaurant_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    analytics = get_order_analytics(db, restaurant_id)
+    if analytics is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Restaurant not found")
+    return analytics
 
 @router.get("/{restaurant_id}/orders/{order_id}", response_model=OrderResponse)
 def get_order(restaurant_id: int, order_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
@@ -243,7 +253,7 @@ def add_order_items(restaurant_id: int, order_id: int, items: list[OrderItemCrea
             db.add(order_item)
             db.flush()
             for option in options:
-                db.add(OrderItem(order_id=order.id, menu_option_id=option.id, name=option.name, quantity=1, unit_price=float(option.additional_price), subtotal=float(option.additional_price), parent_order_item_id=order_item.id))
+                db.add(OrderItem(order_id=order.id, menu_option_id=option.id, name=option.name, quantity=item.quantity, unit_price=float(option.additional_price), subtotal=float(option.additional_price) * item.quantity, parent_order_item_id=order_item.id))
 
         elif item.all_you_can_eat_id:
             ayce = db.query(AllYouCanEat).filter(AllYouCanEat.id == item.all_you_can_eat_id).first()

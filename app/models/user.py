@@ -13,6 +13,8 @@ class User(Base):
     last_name = Column(String, nullable=False)
     phone = Column(String, nullable=True)
     expo_push_token = Column(String, nullable=True)
+    notify_orders = Column(Boolean, default=True)
+    notify_reservations = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     is_admin = Column(Boolean, default=False)
 

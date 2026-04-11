@@ -146,9 +146,9 @@ def create_order(db: Session, restaurant_id: int, data: OrderCreate) -> Order:
                 order_id=order.id,
                 menu_option_id=option.id,
                 name=option.name,
-                quantity=1,
+                quantity=order_item.quantity,
                 unit_price=float(option.additional_price),
-                subtotal=float(option.additional_price),
+                subtotal=float(option.additional_price) * order_item.quantity,
                 parent_order_item_id=order_item.id
             )
             db.add(child)
