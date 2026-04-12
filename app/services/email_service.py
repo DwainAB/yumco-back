@@ -1,3 +1,5 @@
+import asyncio
+
 from fastapi_mail import FastMail, MessageSchema, ConnectionConfig
 from app.core.config import settings
 
@@ -21,3 +23,12 @@ async def send_email(to: str, subject:str, body:str):
     )
     fm = FastMail(conf)
     await fm.send_message(message)
+
+
+async def send_email_safe(to: str, subject: str, body: str, timeout_seconds: float = 10.0) -> bool:
+    try:
+        await asyncio.wait_for(send_email(to=to, subject=subject, body=body), timeout=timeout_seconds)
+        return True
+    except Exception as exc:
+        print("[email] send failed", {"to": to, "subject": subject, "error": str(exc)})
+        return False

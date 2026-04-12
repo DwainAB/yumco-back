@@ -4,7 +4,7 @@ from app.models.user import User
 from app.models.role import Role
 from app.schemas.user import UserCreate, UserUpdate
 from app.core.security import hash_password
-from app.services.email_service import send_email
+from app.services.email_service import send_email_safe
 import secrets
 import string
 
@@ -44,7 +44,7 @@ async def create_user(db: Session, user: UserCreate):
         db.commit()
 
     #Send password by email
-    await send_email(
+    await send_email_safe(
         to=user.email,
         subject="Bienvenue sur Yumco",
         body=f"<h1>Bonjour {user.first_name},</h1><p>Votre mot de passe temporaire : <strong>{password}</strong></p>"

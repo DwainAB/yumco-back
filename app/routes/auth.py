@@ -7,7 +7,7 @@ from app.services.user_service import get_user_by_email, get_user_by_id, create_
 from app.core.security import verify_password, create_access_token, get_current_user, hash_password
 from app.models.user import User
 from app.models.role import Role
-from app.services.email_service import send_email
+from app.services.email_service import send_email_safe
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -17,6 +17,18 @@ def check_permission(current_user: User, restaurant_id: int, db: Session):
     role = db.query(Role).filter(Role.user_id == current_user.id, Role.restaurant_id == restaurant_id).first()
     if not role or role.type not in ["owner", "manager"]:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not allowed")
+
+@router.post("/bootstrap-admin", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
+async def bootstrap_admin(user: UserCreate, db: Session = Depends(get_db)):
+    admin_exists = db.query(User).filter(User.is_admin.is_(True)).first()
+    if admin_exists:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Bootstrap admin is no longer available")
+    if not user.is_admin:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="bootstrap-admin only allows admin users")
+    existing_user = get_user_by_email(db, user.email)
+    if existing_user:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Email already registered")
+    return await create_user(db, user)
 
 @router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
 async def register(user: UserCreate, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
@@ -90,9 +102,11 @@ async def reset_password(email: EmailStr, current_user: User = Depends(get_curre
     new_password = generate_password()
     user.hashed_password = hash_password(new_password)
     db.commit()
-    await send_email(
+    sent = await send_email_safe(
         to=user.email,
         subject="Réinitialisation de votre mot de passe Yumco",
         body=f"<h1>Bonjour {user.first_name},</h1><p>Votre nouveau mot de passe temporaire : <strong>{new_password}</strong></p>"
     )
+    if not sent:
+        return {"message": "Password reset successfully, but email delivery failed"}
     return {"message": "Password reset and email sent successfully"}
