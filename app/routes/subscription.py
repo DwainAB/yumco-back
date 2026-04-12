@@ -20,7 +20,7 @@ from app.services.stripe_billing_service import (
     create_customer_portal_session,
     create_subscription_checkout_session,
     list_restaurant_invoices,
-    sync_restaurant_subscription_from_stripe,
+    sync_restaurant_subscription,
     update_restaurant_subscription_in_stripe,
 )
 from app.services.subscription_service import apply_subscription_plan, get_subscription_usage
@@ -122,9 +122,7 @@ def sync_subscription_from_stripe(
     db: Session = Depends(get_db),
 ):
     restaurant = _require_restaurant_owner_or_admin(restaurant_id, current_user, db)
-    if not restaurant.stripe_subscription_id:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Restaurant does not have an existing Stripe subscription")
-    return sync_restaurant_subscription_from_stripe(db, restaurant, restaurant.stripe_subscription_id, restaurant.stripe_customer_id)
+    return sync_restaurant_subscription(db, restaurant)
 
 
 @router.delete("/{restaurant_id}/subscription/stripe", response_model=RestaurantResponse)

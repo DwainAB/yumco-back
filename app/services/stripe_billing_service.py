@@ -150,6 +150,34 @@ def create_customer_portal_session(db: Session, restaurant: Restaurant, return_u
     return stripe.billing_portal.Session.create(customer=restaurant.stripe_customer_id, return_url=return_url)
 
 
+def _find_existing_subscription_id(db: Session, restaurant: Restaurant) -> tuple[str, str]:
+    restaurant = ensure_stripe_customer(db, restaurant)
+
+    if restaurant.stripe_subscription_id:
+        return restaurant.stripe_subscription_id, restaurant.stripe_customer_id
+
+    _configure_stripe()
+    subscriptions = stripe.Subscription.list(customer=restaurant.stripe_customer_id, status="all", limit=10)
+    preferred_statuses = {"trialing", "active", "past_due", "unpaid", "incomplete"}
+
+    for subscription in subscriptions["data"]:
+        if subscription.get("status") in preferred_statuses:
+            return subscription["id"], restaurant.stripe_customer_id
+
+    if subscriptions["data"]:
+        return subscriptions["data"][0]["id"], restaurant.stripe_customer_id
+
+    raise HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail="Restaurant does not have an existing Stripe subscription",
+    )
+
+
+def sync_restaurant_subscription(db: Session, restaurant: Restaurant) -> Restaurant:
+    stripe_subscription_id, stripe_customer_id = _find_existing_subscription_id(db, restaurant)
+    return sync_restaurant_subscription_from_stripe(db, restaurant, stripe_subscription_id, stripe_customer_id)
+
+
 def update_restaurant_subscription_in_stripe(
     db: Session,
     restaurant: Restaurant,
@@ -158,15 +186,11 @@ def update_restaurant_subscription_in_stripe(
     has_tablet_rental: bool,
     has_printer_rental: bool,
 ) -> Restaurant:
-    if not restaurant.stripe_subscription_id:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Restaurant does not have an existing Stripe subscription",
-        )
+    stripe_subscription_id, stripe_customer_id = _find_existing_subscription_id(db, restaurant)
 
     _configure_stripe()
     subscription = stripe.Subscription.retrieve(
-        restaurant.stripe_subscription_id,
+        stripe_subscription_id,
         expand=["items.data.price"],
     )
 
@@ -178,28 +202,24 @@ def update_restaurant_subscription_in_stripe(
         items.append({"price": line_item["price"], "quantity": line_item["quantity"]})
 
     stripe.Subscription.modify(
-        restaurant.stripe_subscription_id,
+        stripe_subscription_id,
         items=items,
         proration_behavior="create_prorations",
         metadata={"restaurant_id": str(restaurant.id)},
     )
 
-    return sync_restaurant_subscription_from_stripe(db, restaurant, restaurant.stripe_subscription_id, restaurant.stripe_customer_id)
+    return sync_restaurant_subscription_from_stripe(db, restaurant, stripe_subscription_id, stripe_customer_id)
 
 
 def cancel_restaurant_subscription_in_stripe(db: Session, restaurant: Restaurant, at_period_end: bool = True) -> Restaurant:
-    if not restaurant.stripe_subscription_id:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Restaurant does not have an existing Stripe subscription",
-        )
+    stripe_subscription_id, stripe_customer_id = _find_existing_subscription_id(db, restaurant)
 
     _configure_stripe()
     if at_period_end:
-        stripe.Subscription.modify(restaurant.stripe_subscription_id, cancel_at_period_end=True)
-        return sync_restaurant_subscription_from_stripe(db, restaurant, restaurant.stripe_subscription_id, restaurant.stripe_customer_id)
+        stripe.Subscription.modify(stripe_subscription_id, cancel_at_period_end=True)
+        return sync_restaurant_subscription_from_stripe(db, restaurant, stripe_subscription_id, stripe_customer_id)
 
-    stripe.Subscription.cancel(restaurant.stripe_subscription_id)
+    stripe.Subscription.cancel(stripe_subscription_id)
     return cancel_restaurant_subscription(db, restaurant)
 
 
