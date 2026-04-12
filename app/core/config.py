@@ -20,6 +20,16 @@ class Settings(BaseSettings):
     FRONTEND_BASE_URL: str | None = None
     STRIPE_SECRET_KEY: str | None = None
     STRIPE_WEBHOOK_SECRET: str | None = None
+    STRIPE_PRICE_STARTER_MONTHLY: str | None = None
+    STRIPE_PRICE_STARTER_YEARLY: str | None = None
+    STRIPE_PRICE_PRO_AI_MONTHLY: str | None = None
+    STRIPE_PRICE_PRO_AI_YEARLY: str | None = None
+    STRIPE_PRICE_BUSINESS_AI_MONTHLY: str | None = None
+    STRIPE_PRICE_BUSINESS_AI_YEARLY: str | None = None
+    STRIPE_PRICE_TABLET_RENTAL_MONTHLY: str | None = None
+    STRIPE_PRICE_TABLET_RENTAL_YEARLY: str | None = None
+    STRIPE_PRICE_PRINTER_RENTAL_MONTHLY: str | None = None
+    STRIPE_PRICE_PRINTER_RENTAL_YEARLY: str | None = None
     BREVO_API_KEY: str | None = None
 
     class Config: 

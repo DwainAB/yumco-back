@@ -7,6 +7,22 @@ from app.models.restaurant import Restaurant
 from app.models.role import Role
 from app.models.user import User
 from app.schemas.restaurant import RestaurantResponse, RestaurantSubscriptionUpdate, RestaurantSubscriptionUsage
+from app.schemas.stripe_billing import (
+    StripeCustomerPortalRequest,
+    StripeCustomerPortalResponse,
+    StripeInvoiceResponse,
+    StripeSubscriptionCheckoutRequest,
+    StripeSubscriptionCheckoutResponse,
+    StripeSubscriptionUpdateRequest,
+)
+from app.services.stripe_billing_service import (
+    cancel_restaurant_subscription_in_stripe,
+    create_customer_portal_session,
+    create_subscription_checkout_session,
+    list_restaurant_invoices,
+    sync_restaurant_subscription_from_stripe,
+    update_restaurant_subscription_in_stripe,
+)
 from app.services.subscription_service import apply_subscription_plan, get_subscription_usage
 
 
@@ -46,3 +62,87 @@ def update_restaurant_subscription(
 ):
     restaurant = _require_restaurant_owner_or_admin(restaurant_id, current_user, db)
     return apply_subscription_plan(db, restaurant, data.subscription_plan, data.ai_cycle_started_at)
+
+
+@router.post("/{restaurant_id}/subscription/checkout-session", response_model=StripeSubscriptionCheckoutResponse)
+def create_subscription_checkout(
+    restaurant_id: int,
+    data: StripeSubscriptionCheckoutRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    restaurant = _require_restaurant_owner_or_admin(restaurant_id, current_user, db)
+    session = create_subscription_checkout_session(
+        db,
+        restaurant,
+        data.subscription_plan,
+        data.subscription_interval,
+        data.has_tablet_rental,
+        data.has_printer_rental,
+        str(data.success_url),
+        str(data.cancel_url),
+    )
+    return {"checkout_session_id": session.id, "checkout_url": session.url}
+
+
+@router.post("/{restaurant_id}/subscription/customer-portal", response_model=StripeCustomerPortalResponse)
+def create_subscription_customer_portal(
+    restaurant_id: int,
+    data: StripeCustomerPortalRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    restaurant = _require_restaurant_owner_or_admin(restaurant_id, current_user, db)
+    session = create_customer_portal_session(db, restaurant, str(data.return_url))
+    return {"url": session.url}
+
+
+@router.put("/{restaurant_id}/subscription/stripe", response_model=RestaurantResponse)
+def update_subscription_in_stripe(
+    restaurant_id: int,
+    data: StripeSubscriptionUpdateRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    restaurant = _require_restaurant_owner_or_admin(restaurant_id, current_user, db)
+    return update_restaurant_subscription_in_stripe(
+        db,
+        restaurant,
+        data.subscription_plan,
+        data.subscription_interval,
+        data.has_tablet_rental,
+        data.has_printer_rental,
+    )
+
+
+@router.post("/{restaurant_id}/subscription/stripe/sync", response_model=RestaurantResponse)
+def sync_subscription_from_stripe(
+    restaurant_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    restaurant = _require_restaurant_owner_or_admin(restaurant_id, current_user, db)
+    if not restaurant.stripe_subscription_id:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Restaurant does not have an existing Stripe subscription")
+    return sync_restaurant_subscription_from_stripe(db, restaurant, restaurant.stripe_subscription_id, restaurant.stripe_customer_id)
+
+
+@router.delete("/{restaurant_id}/subscription/stripe", response_model=RestaurantResponse)
+def cancel_subscription_in_stripe(
+    restaurant_id: int,
+    at_period_end: bool = True,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    restaurant = _require_restaurant_owner_or_admin(restaurant_id, current_user, db)
+    return cancel_restaurant_subscription_in_stripe(db, restaurant, at_period_end=at_period_end)
+
+
+@router.get("/{restaurant_id}/subscription/invoices", response_model=list[StripeInvoiceResponse])
+def get_subscription_invoices(
+    restaurant_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    restaurant = _require_restaurant_owner_or_admin(restaurant_id, current_user, db)
+    return list_restaurant_invoices(db, restaurant)

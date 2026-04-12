@@ -98,6 +98,10 @@ def get_subscription_usage(db: Session, restaurant: Restaurant) -> dict:
 
     return {
         "plan": restaurant.subscription_plan,
+        "interval": getattr(restaurant, "subscription_interval", "month"),
+        "subscription_status": getattr(restaurant, "subscription_status", None),
+        "has_tablet_rental": bool(getattr(restaurant, "has_tablet_rental", False)),
+        "has_printer_rental": bool(getattr(restaurant, "has_printer_rental", False)),
         "monthly_quota": restaurant.ai_monthly_quota,
         "usage_count": restaurant.ai_usage_count,
         "usage_remaining": usage_remaining,

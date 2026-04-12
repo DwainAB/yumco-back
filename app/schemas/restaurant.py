@@ -71,6 +71,12 @@ class RestaurantResponse(BaseModel):
     stripe_payouts_enabled: bool = False
     stripe_details_submitted: bool = False
     subscription_plan: str
+    subscription_interval: str = "month"
+    subscription_status: str | None = None
+    stripe_customer_id: str | None = None
+    stripe_subscription_id: str | None = None
+    has_tablet_rental: bool = False
+    has_printer_rental: bool = False
     ai_monthly_quota: int
     ai_usage_count: int
     ai_monthly_token_quota: int
@@ -87,6 +93,9 @@ class RestaurantResponse(BaseModel):
 
 class RestaurantSubscriptionUpdate(BaseModel):
     subscription_plan: str
+    subscription_interval: str | None = None
+    has_tablet_rental: bool | None = None
+    has_printer_rental: bool | None = None
     ai_cycle_started_at: datetime | None = None
 
     @field_validator("subscription_plan")
@@ -96,9 +105,23 @@ class RestaurantSubscriptionUpdate(BaseModel):
         assert normalized is not None
         return normalized
 
+    @field_validator("subscription_interval")
+    @classmethod
+    def validate_subscription_interval(cls, value: str | None) -> str | None:
+        if value is None:
+            return value
+        normalized = value.strip().lower()
+        if normalized not in {"month", "year"}:
+            raise ValueError("subscription_interval must be 'month' or 'year'")
+        return normalized
+
 
 class RestaurantSubscriptionUsage(BaseModel):
     plan: str
+    interval: str
+    subscription_status: str | None = None
+    has_tablet_rental: bool = False
+    has_printer_rental: bool = False
     monthly_quota: int
     usage_count: int
     usage_remaining: int

@@ -29,6 +29,7 @@ from app.services.stripe_connect_service import (
     sync_order_payment_from_charge,
     sync_order_payment_from_checkout,
 )
+from app.services.stripe_billing_service import cancel_restaurant_subscription, sync_restaurant_subscription_from_stripe
 
 
 router = APIRouter(tags=["stripe-connect"])
@@ -159,10 +160,31 @@ async def handle_stripe_webhook(
     print("[stripe_webhook] received event", {"type": event_type, "account": event.get("account")})
 
     if event_type in {"checkout.session.completed", "checkout.session.async_payment_succeeded"}:
-        sync_order_payment_from_checkout(db, event_object)
+        if event_object.get("mode") == "subscription":
+            restaurant_id = (event_object.get("metadata") or {}).get("restaurant_id")
+            subscription_id = event_object.get("subscription")
+            customer_id = event_object.get("customer")
+            if restaurant_id and subscription_id:
+                restaurant = db.query(Restaurant).filter(Restaurant.id == int(restaurant_id)).first()
+                if restaurant:
+                    sync_restaurant_subscription_from_stripe(db, restaurant, subscription_id, customer_id)
+        else:
+            sync_order_payment_from_checkout(db, event_object)
     elif event_type == "checkout.session.async_payment_failed":
         print("[stripe_webhook] async payment failed", {"session_id": event_object.get("id")})
     elif event_type in {"charge.succeeded", "charge.refunded"}:
         sync_order_payment_from_charge(db, event_object)
+    elif event_type in {"customer.subscription.created", "customer.subscription.updated"}:
+        restaurant_id = (event_object.get("metadata") or {}).get("restaurant_id")
+        if restaurant_id:
+            restaurant = db.query(Restaurant).filter(Restaurant.id == int(restaurant_id)).first()
+            if restaurant:
+                sync_restaurant_subscription_from_stripe(db, restaurant, event_object["id"], event_object.get("customer"))
+    elif event_type == "customer.subscription.deleted":
+        restaurant_id = (event_object.get("metadata") or {}).get("restaurant_id")
+        if restaurant_id:
+            restaurant = db.query(Restaurant).filter(Restaurant.id == int(restaurant_id)).first()
+            if restaurant:
+                cancel_restaurant_subscription(db, restaurant)
 
     return Response(status_code=status.HTTP_200_OK)
