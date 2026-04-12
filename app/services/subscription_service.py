@@ -100,6 +100,8 @@ def get_subscription_usage(db: Session, restaurant: Restaurant) -> dict:
         "plan": restaurant.subscription_plan,
         "interval": getattr(restaurant, "subscription_interval", "month"),
         "subscription_status": getattr(restaurant, "subscription_status", None),
+        "subscription_cancel_at_period_end": bool(getattr(restaurant, "subscription_cancel_at_period_end", False)),
+        "subscription_current_period_ends_at": getattr(restaurant, "subscription_current_period_ends_at", None),
         "has_tablet_rental": bool(getattr(restaurant, "has_tablet_rental", False)),
         "has_printer_rental": bool(getattr(restaurant, "has_printer_rental", False)),
         "monthly_quota": restaurant.ai_monthly_quota,

@@ -73,6 +73,8 @@ class RestaurantResponse(BaseModel):
     subscription_plan: str
     subscription_interval: str = "month"
     subscription_status: str | None = None
+    subscription_cancel_at_period_end: bool = False
+    subscription_current_period_ends_at: datetime | None = None
     stripe_customer_id: str | None = None
     stripe_subscription_id: str | None = None
     has_tablet_rental: bool = False
@@ -120,6 +122,8 @@ class RestaurantSubscriptionUsage(BaseModel):
     plan: str
     interval: str
     subscription_status: str | None = None
+    subscription_cancel_at_period_end: bool = False
+    subscription_current_period_ends_at: datetime | None = None
     has_tablet_rental: bool = False
     has_printer_rental: bool = False
     monthly_quota: int

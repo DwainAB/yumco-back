@@ -1,6 +1,7 @@
 import stripe
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
+from datetime import datetime, timezone
 
 from app.core.config import settings
 from app.models.restaurant import Restaurant
@@ -18,6 +19,12 @@ def _require_stripe_secret_key() -> str:
 
 def _configure_stripe() -> None:
     stripe.api_key = _require_stripe_secret_key()
+
+
+def _from_unix_timestamp(value: int | None):
+    if not value:
+        return None
+    return datetime.fromtimestamp(value, tz=timezone.utc)
 
 
 def _main_plan_prices() -> dict[tuple[str, str], str | None]:
@@ -277,6 +284,8 @@ def sync_restaurant_subscription_from_stripe(
     restaurant.stripe_customer_id = stripe_customer_id or subscription.get("customer")
     restaurant.stripe_subscription_id = subscription.id
     restaurant.subscription_status = subscription.status
+    restaurant.subscription_cancel_at_period_end = bool(subscription.get("cancel_at_period_end"))
+    restaurant.subscription_current_period_ends_at = _from_unix_timestamp(subscription.get("current_period_end"))
     restaurant.subscription_interval = subscription_interval
     restaurant.has_tablet_rental = has_tablet_rental
     restaurant.has_printer_rental = has_printer_rental
@@ -286,6 +295,8 @@ def sync_restaurant_subscription_from_stripe(
     restaurant = apply_subscription_plan(db, restaurant, subscription_plan)
     restaurant.subscription_interval = subscription_interval
     restaurant.subscription_status = subscription.status
+    restaurant.subscription_cancel_at_period_end = bool(subscription.get("cancel_at_period_end"))
+    restaurant.subscription_current_period_ends_at = _from_unix_timestamp(subscription.get("current_period_end"))
     restaurant.stripe_customer_id = stripe_customer_id or subscription.get("customer")
     restaurant.stripe_subscription_id = subscription.id
     restaurant.has_tablet_rental = has_tablet_rental
@@ -297,10 +308,9 @@ def sync_restaurant_subscription_from_stripe(
 
 def cancel_restaurant_subscription(db: Session, restaurant: Restaurant) -> Restaurant:
     restaurant.subscription_status = "canceled"
+    restaurant.subscription_cancel_at_period_end = False
+    restaurant.subscription_current_period_ends_at = None
     restaurant.stripe_subscription_id = None
-    restaurant.subscription_interval = "month"
-    restaurant.has_tablet_rental = False
-    restaurant.has_printer_rental = False
     db.commit()
     db.refresh(restaurant)
-    return apply_subscription_plan(db, restaurant, "starter")
+    return restaurant

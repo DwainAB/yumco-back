@@ -20,6 +20,8 @@ class Restaurant(Base):
     subscription_plan = Column(String, nullable=False, default="starter")
     subscription_interval = Column(String, nullable=False, default="month")
     subscription_status = Column(String, nullable=True)
+    subscription_cancel_at_period_end = Column(Boolean, nullable=False, default=False)
+    subscription_current_period_ends_at = Column(DateTime(timezone=True), nullable=True)
     stripe_customer_id = Column(String, nullable=True)
     stripe_subscription_id = Column(String, nullable=True)
     has_tablet_rental = Column(Boolean, nullable=False, default=False)
