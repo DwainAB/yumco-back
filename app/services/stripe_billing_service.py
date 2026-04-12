@@ -21,6 +21,13 @@ def _configure_stripe() -> None:
     stripe.api_key = _require_stripe_secret_key()
 
 
+def _stripe_dashboard_base_url() -> str:
+    secret_key = _require_stripe_secret_key()
+    if secret_key.startswith("sk_test_"):
+        return "https://dashboard.stripe.com/test"
+    return "https://dashboard.stripe.com"
+
+
 def _from_unix_timestamp(value: int | None):
     if not value:
         return None
@@ -116,47 +123,6 @@ def ensure_stripe_customer(db: Session, restaurant: Restaurant) -> Restaurant:
     return restaurant
 
 
-def create_subscription_checkout_session(
-    db: Session,
-    restaurant: Restaurant,
-    subscription_plan: str,
-    subscription_interval: str,
-    has_tablet_rental: bool,
-    has_printer_rental: bool,
-    success_url: str,
-    cancel_url: str,
-):
-    restaurant = ensure_stripe_customer(db, restaurant)
-    if restaurant.stripe_subscription_id and restaurant.subscription_status in {"trialing", "active", "past_due", "unpaid"}:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Restaurant already has an active Stripe subscription. Update it instead of creating a new checkout session.",
-        )
-    _configure_stripe()
-    return stripe.checkout.Session.create(
-        mode="subscription",
-        customer=restaurant.stripe_customer_id,
-        success_url=success_url,
-        cancel_url=cancel_url,
-        line_items=_build_line_items(subscription_plan, subscription_interval, has_tablet_rental, has_printer_rental),
-        allow_promotion_codes=True,
-        metadata={
-            "restaurant_id": str(restaurant.id),
-        },
-        subscription_data={
-            "metadata": {
-                "restaurant_id": str(restaurant.id),
-            }
-        },
-    )
-
-
-def create_customer_portal_session(db: Session, restaurant: Restaurant, return_url: str):
-    restaurant = ensure_stripe_customer(db, restaurant)
-    _configure_stripe()
-    return stripe.billing_portal.Session.create(customer=restaurant.stripe_customer_id, return_url=return_url)
-
-
 def _find_existing_subscription_id(db: Session, restaurant: Restaurant) -> tuple[str, str]:
     restaurant = ensure_stripe_customer(db, restaurant)
 
@@ -183,51 +149,6 @@ def _find_existing_subscription_id(db: Session, restaurant: Restaurant) -> tuple
 def sync_restaurant_subscription(db: Session, restaurant: Restaurant) -> Restaurant:
     stripe_subscription_id, stripe_customer_id = _find_existing_subscription_id(db, restaurant)
     return sync_restaurant_subscription_from_stripe(db, restaurant, stripe_subscription_id, stripe_customer_id)
-
-
-def update_restaurant_subscription_in_stripe(
-    db: Session,
-    restaurant: Restaurant,
-    subscription_plan: str,
-    subscription_interval: str,
-    has_tablet_rental: bool,
-    has_printer_rental: bool,
-) -> Restaurant:
-    stripe_subscription_id, stripe_customer_id = _find_existing_subscription_id(db, restaurant)
-
-    _configure_stripe()
-    subscription = stripe.Subscription.retrieve(
-        stripe_subscription_id,
-        expand=["items.data.price"],
-    )
-
-    items: list[dict] = []
-    for item in subscription["items"]["data"]:
-        items.append({"id": item["id"], "deleted": True})
-
-    for line_item in _build_line_items(subscription_plan, subscription_interval, has_tablet_rental, has_printer_rental):
-        items.append({"price": line_item["price"], "quantity": line_item["quantity"]})
-
-    stripe.Subscription.modify(
-        stripe_subscription_id,
-        items=items,
-        proration_behavior="create_prorations",
-        metadata={"restaurant_id": str(restaurant.id)},
-    )
-
-    return sync_restaurant_subscription_from_stripe(db, restaurant, stripe_subscription_id, stripe_customer_id)
-
-
-def cancel_restaurant_subscription_in_stripe(db: Session, restaurant: Restaurant, at_period_end: bool = True) -> Restaurant:
-    stripe_subscription_id, stripe_customer_id = _find_existing_subscription_id(db, restaurant)
-
-    _configure_stripe()
-    if at_period_end:
-        stripe.Subscription.modify(stripe_subscription_id, cancel_at_period_end=True)
-        return sync_restaurant_subscription_from_stripe(db, restaurant, stripe_subscription_id, stripe_customer_id)
-
-    stripe.Subscription.cancel(stripe_subscription_id)
-    return cancel_restaurant_subscription(db, restaurant)
 
 
 def list_restaurant_invoices(db: Session, restaurant: Restaurant) -> list[dict]:
@@ -314,3 +235,11 @@ def cancel_restaurant_subscription(db: Session, restaurant: Restaurant) -> Resta
     db.commit()
     db.refresh(restaurant)
     return restaurant
+
+
+def get_admin_subscription_links(restaurant: Restaurant) -> dict:
+    base_url = _stripe_dashboard_base_url()
+    return {
+        "customer_url": f"{base_url}/customers/{restaurant.stripe_customer_id}" if restaurant.stripe_customer_id else None,
+        "subscription_url": f"{base_url}/subscriptions/{restaurant.stripe_subscription_id}" if restaurant.stripe_subscription_id else None,
+    }
