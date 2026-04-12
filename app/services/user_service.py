@@ -30,16 +30,18 @@ async def create_user(db: Session, user: UserCreate):
         hashed_password=hashed,
         first_name=user.first_name,
         last_name=user.last_name,
-        phone=user.phone
+        phone=user.phone,
+        is_admin=user.is_admin
     )
     db.add(db_user)
     db.commit()
     db.refresh(db_user)
 
     #Assign role to user
-    role= Role(user_id=db_user.id, restaurant_id=user.restaurant_id, type=user.role)
-    db.add(role)
-    db.commit()
+    if user.restaurant_id is not None and user.role is not None:
+        role = Role(user_id=db_user.id, restaurant_id=user.restaurant_id, type=user.role)
+        db.add(role)
+        db.commit()
 
     #Send password by email
     await send_email(

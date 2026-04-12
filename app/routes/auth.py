@@ -20,7 +20,13 @@ def check_permission(current_user: User, restaurant_id: int, db: Session):
 
 @router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
 async def register(user: UserCreate, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    check_permission(current_user, user.restaurant_id, db)
+    if user.is_admin:
+        if not current_user.is_admin:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not allowed to create admin users")
+    else:
+        if user.restaurant_id is None:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="restaurant_id is required for non-admin users")
+        check_permission(current_user, user.restaurant_id, db)
     existing_user = get_user_by_email(db, user.email)
     if existing_user:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Email already registered")

@@ -1,4 +1,4 @@
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, model_validator
 from datetime import datetime
 
 class RoleInfo(BaseModel):
@@ -23,8 +23,19 @@ class UserCreate(BaseModel):
     first_name: str
     last_name: str
     phone : str | None = None
-    restaurant_id: int
-    role: str
+    restaurant_id: int | None = None
+    role: str | None = None
+    is_admin: bool = False
+
+    @model_validator(mode="after")
+    def validate_role_assignment(self):
+        if (self.restaurant_id is None) != (self.role is None):
+            raise ValueError("restaurant_id and role must be provided together")
+        if self.is_admin and self.restaurant_id is not None:
+            raise ValueError("admin users cannot be attached to a restaurant at creation")
+        if not self.is_admin and self.restaurant_id is None:
+            raise ValueError("non-admin users must be attached to a restaurant")
+        return self
 
 class UserLogin(BaseModel):
     email: EmailStr
