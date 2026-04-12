@@ -20,6 +20,7 @@ class Settings(BaseSettings):
     FRONTEND_BASE_URL: str | None = None
     STRIPE_SECRET_KEY: str | None = None
     STRIPE_WEBHOOK_SECRET: str | None = None
+    BREVO_API_KEY: str | None = None
 
     class Config: 
         env_file = ".env"
