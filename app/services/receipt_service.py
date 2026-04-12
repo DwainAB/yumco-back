@@ -101,7 +101,7 @@ def generate_receipt(order, restaurant) -> BytesIO:
         payment_labels = {
             "unpaid": "Non payé",
             "awaiting_payment": "En attente de paiement",
-            "pending": "En attente",
+            "paid": "Payé",
             "refunded": "Remboursé"
         }
         payment_label = payment_labels.get(order.payment_status, order.payment_status)

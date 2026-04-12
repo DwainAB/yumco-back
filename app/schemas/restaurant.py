@@ -67,6 +67,9 @@ class RestaurantResponse(BaseModel):
     timezone: str = "Europe/Paris"
     address: AddressResponse | None = None
     stripe_id: str | None = None
+    stripe_charges_enabled: bool = False
+    stripe_payouts_enabled: bool = False
+    stripe_details_submitted: bool = False
     subscription_plan: str
     ai_monthly_quota: int
     ai_usage_count: int

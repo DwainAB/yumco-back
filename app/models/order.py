@@ -12,8 +12,11 @@ class Order(Base):
     customer_id = Column(Integer, ForeignKey("customers.id", ondelete="SET NULL"), nullable=True)
     type = Column(String, nullable=False)  # delivery | pickup | onsite
     status = Column(String, default="pending")  # pending | preparing | completed | cancelled
-    payment_status = Column(String, default="unpaid")  # unpaid | awaiting_payment | pending | refunded
+    payment_status = Column(String, default="unpaid")  # unpaid | awaiting_payment | paid | refunded
     amount_total = Column(Numeric(10, 2), nullable=False, default=0)
+    stripe_checkout_session_id = Column(String, nullable=True)
+    stripe_payment_intent_id = Column(String, nullable=True)
+    stripe_charge_id = Column(String, nullable=True)
     comment = Column(String, nullable=True)
     requested_time = Column(DateTime(timezone=True), nullable=True)
     completed_at = Column(DateTime(timezone=True), nullable=True)

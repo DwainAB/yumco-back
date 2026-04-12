@@ -16,6 +16,10 @@ class Settings(BaseSettings):
     CLOUDINARY_API_SECRET: str
     OPENAI_API_KEY: str | None = None
     OPENAI_MODEL: str = "gpt-5.4-mini"
+    APP_BASE_URL: str | None = None
+    FRONTEND_BASE_URL: str | None = None
+    STRIPE_SECRET_KEY: str | None = None
+    STRIPE_WEBHOOK_SECRET: str | None = None
 
     class Config: 
         env_file = ".env"

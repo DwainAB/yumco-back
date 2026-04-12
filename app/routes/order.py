@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 from app.db.database import get_db
 from app.models.order import Order
 from app.models.restaurant import Restaurant
+from app.models.restaurant_config import RestaurantConfig
 from app.models.opening_hours import OpeningHours
 from app.schemas.order import OrderCreate, OrderItemCreate, OrderUpdate, OrderResponse, OrderStatusUpdate
 from app.schemas.order_analytics import OrderAnalyticsResponse
@@ -98,6 +99,9 @@ def get_order_slots(
 
 @router.post("/{restaurant_id}/orders", response_model=OrderResponse, status_code=status.HTTP_201_CREATED)
 def create_order_route(restaurant_id: int, data: OrderCreate, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
+    restaurant_config = db.query(RestaurantConfig).filter(RestaurantConfig.restaurant_id == restaurant_id).first()
+    if restaurant_config and restaurant_config.payment_online and not restaurant_config.payment_onsite:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Online payment is required for this restaurant")
     order = create_order(db, restaurant_id, data)
     restaurant = db.query(Restaurant).filter(Restaurant.id == restaurant_id).first()
     background_tasks.add_task(send_order_confirmed, order, restaurant)
