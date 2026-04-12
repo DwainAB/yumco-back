@@ -7,7 +7,7 @@ from app.services.user_service import get_user_by_email, get_user_by_id, create_
 from app.core.security import verify_password, create_access_token, get_current_user, hash_password
 from app.models.user import User
 from app.models.role import Role
-from app.services.email_service import send_email_safe
+from app.services.email_service import send_email
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -100,13 +100,20 @@ async def reset_password(email: EmailStr, current_user: User = Depends(get_curre
     elif not current_user.is_admin:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not allowed")
     new_password = generate_password()
+    previous_hash = user.hashed_password
     user.hashed_password = hash_password(new_password)
-    db.commit()
-    sent = await send_email_safe(
-        to=user.email,
-        subject="Réinitialisation de votre mot de passe Yumco",
-        body=f"<h1>Bonjour {user.first_name},</h1><p>Votre nouveau mot de passe temporaire : <strong>{new_password}</strong></p>"
-    )
-    if not sent:
-        return {"message": "Password reset successfully, but email delivery failed"}
-    return {"message": "Password reset and email sent successfully"}
+    try:
+        await send_email(
+            to=user.email,
+            subject="Réinitialisation de votre mot de passe Yumco",
+            body=f"<h1>Bonjour {user.first_name},</h1><p>Votre nouveau mot de passe temporaire : <strong>{new_password}</strong></p>"
+        )
+        db.commit()
+        return {"message": "Password reset and email sent successfully"}
+    except Exception as exc:
+        db.rollback()
+        user.hashed_password = previous_hash
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Password reset failed because email could not be sent: {exc}"
+        ) from exc

@@ -1,10 +1,10 @@
-from fastapi import HTTPException
+from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 from app.models.user import User
 from app.models.role import Role
 from app.schemas.user import UserCreate, UserUpdate
 from app.core.security import hash_password
-from app.services.email_service import send_email_safe
+from app.services.email_service import send_email
 import secrets
 import string
 
@@ -33,24 +33,30 @@ async def create_user(db: Session, user: UserCreate):
         phone=user.phone,
         is_admin=user.is_admin
     )
-    db.add(db_user)
-    db.commit()
-    db.refresh(db_user)
 
-    #Assign role to user
-    if user.restaurant_id is not None and user.role is not None:
-        role = Role(user_id=db_user.id, restaurant_id=user.restaurant_id, type=user.role)
-        db.add(role)
+    try:
+        db.add(db_user)
+        db.flush()
+
+        if user.restaurant_id is not None and user.role is not None:
+            role = Role(user_id=db_user.id, restaurant_id=user.restaurant_id, type=user.role)
+            db.add(role)
+
+        await send_email(
+            to=user.email,
+            subject="Bienvenue sur Yumco",
+            body=f"<h1>Bonjour {user.first_name},</h1><p>Votre mot de passe temporaire : <strong>{password}</strong></p>"
+        )
+
         db.commit()
-
-    #Send password by email
-    await send_email_safe(
-        to=user.email,
-        subject="Bienvenue sur Yumco",
-        body=f"<h1>Bonjour {user.first_name},</h1><p>Votre mot de passe temporaire : <strong>{password}</strong></p>"
-    )
-
-    return db_user
+        db.refresh(db_user)
+        return db_user
+    except Exception as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"User creation failed because welcome email could not be sent: {exc}"
+        ) from exc
 
 #update a user
 def update_user(db: Session, user: User, data: UserUpdate, current_user: User):
