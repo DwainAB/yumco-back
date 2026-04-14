@@ -122,8 +122,10 @@ class RestaurantSubscriptionUsage(BaseModel):
     plan: str
     interval: str
     subscription_status: str | None = None
+    subscription_display_status: str
     subscription_cancel_at_period_end: bool = False
     subscription_current_period_ends_at: datetime | None = None
+    subscription_next_billing_at: datetime | None = None
     has_tablet_rental: bool = False
     has_printer_rental: bool = False
     monthly_quota: int

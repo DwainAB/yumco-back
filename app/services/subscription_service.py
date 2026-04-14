@@ -95,13 +95,27 @@ def get_subscription_usage(db: Session, restaurant: Restaurant) -> dict:
     is_ai_enabled = restaurant.ai_monthly_quota > 0
     is_quota_reached = is_ai_enabled and usage_remaining <= 0
     is_token_quota_reached = is_ai_enabled and token_usage_remaining <= 0
+    subscription_status = getattr(restaurant, "subscription_status", None)
+    cancel_at_period_end = bool(getattr(restaurant, "subscription_cancel_at_period_end", False))
+    current_period_end = getattr(restaurant, "subscription_current_period_ends_at", None)
+
+    if subscription_status == "canceled":
+        display_status = "Annulé"
+    elif cancel_at_period_end:
+        display_status = "Se termine en fin de période"
+    elif subscription_status in {"active", "trialing", "past_due", "unpaid"}:
+        display_status = "En cours"
+    else:
+        display_status = "Aucun abonnement"
 
     return {
         "plan": restaurant.subscription_plan,
         "interval": getattr(restaurant, "subscription_interval", "month"),
-        "subscription_status": getattr(restaurant, "subscription_status", None),
-        "subscription_cancel_at_period_end": bool(getattr(restaurant, "subscription_cancel_at_period_end", False)),
-        "subscription_current_period_ends_at": getattr(restaurant, "subscription_current_period_ends_at", None),
+        "subscription_status": subscription_status,
+        "subscription_display_status": display_status,
+        "subscription_cancel_at_period_end": cancel_at_period_end,
+        "subscription_current_period_ends_at": current_period_end,
+        "subscription_next_billing_at": None if subscription_status == "canceled" else current_period_end,
         "has_tablet_rental": bool(getattr(restaurant, "has_tablet_rental", False)),
         "has_printer_rental": bool(getattr(restaurant, "has_printer_rental", False)),
         "monthly_quota": restaurant.ai_monthly_quota,

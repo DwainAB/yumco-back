@@ -18,6 +18,10 @@ class User(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     is_admin = Column(Boolean, default=False)
 
-    roles = relationship("Role", lazy="joined")
-
+    roles = relationship(
+        "Role",
+        lazy="joined",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
 
