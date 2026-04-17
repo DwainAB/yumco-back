@@ -31,6 +31,10 @@ class Settings(BaseSettings):
     STRIPE_PRICE_PRINTER_RENTAL_MONTHLY: str | None = None
     STRIPE_PRICE_PRINTER_RENTAL_YEARLY: str | None = None
     BREVO_API_KEY: str | None = None
+    HUBRISE_CLIENT_ID: str | None = None
+    HUBRISE_CLIENT_SECRET: str | None = None
+    HUBRISE_REDIRECT_URI: str | None = "http://192.168.1.45:8000/integrations/hubrise/callback"
+    HUBRISE_RESULT_REDIRECT_URI: str | None = None
 
     class Config: 
         env_file = ".env"
