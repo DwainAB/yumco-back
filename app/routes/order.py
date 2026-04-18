@@ -205,6 +205,11 @@ def update_order(restaurant_id: int, order_id: int, data: OrderUpdate, backgroun
         from datetime import datetime, timezone
         update_data["completed_at"] = datetime.now(timezone.utc)
 
+    if new_status in {"completed", "cancelled"} and order.table_id:
+        table = db.query(Table).filter(Table.id == order.table_id).first()
+        if table:
+            table.is_available = True
+
     for field, value in update_data.items():
         setattr(order, field, value)
 
@@ -410,5 +415,14 @@ def delete_order(restaurant_id: int, order_id: int, current_user: User = Depends
     order = db.query(Order).filter(Order.id == order_id, Order.restaurant_id == restaurant_id).first()
     if not order:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+    if order.type == "onsite" and not order.is_draft:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Submitted onsite orders must be cancelled instead of deleted",
+        )
+    if order.table_id:
+        table = db.query(Table).filter(Table.id == order.table_id).first()
+        if table:
+            table.is_available = True
     db.delete(order)
     db.commit()

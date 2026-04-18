@@ -2,15 +2,22 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from app.db.database import get_db
 from app.models.user import User
+from app.models.hubrise_order_log import HubriseOrderLog
 from app.models.order import Order
 from app.models.restaurant import Restaurant
 from app.models.hubrise_connection import HubriseConnection
 from app.models.role import Role
 from app.schemas.user import UserResponse
-from app.schemas.hubrise import HubriseRetryOrderResponse, HubriseTestOrderRequest, HubriseTestOrderResponse
+from app.schemas.hubrise import (
+    HubriseOrderDebugResponse,
+    HubriseOrderLogResponse,
+    HubriseRetryOrderResponse,
+    HubriseTestOrderRequest,
+    HubriseTestOrderResponse,
+)
 from app.schemas.restaurant import RestaurantHubriseStatusResponse, RestaurantResponse
 from app.services.user_service import get_user_by_id, delete_user
-from app.services.hubrise_service import send_hubrise_test_order, sync_order_to_hubrise
+from app.services.hubrise_service import send_hubrise_test_order, sync_order_items_to_hubrise, sync_order_to_hubrise
 from app.core.security import get_current_user
 from datetime import datetime, timezone
 
@@ -124,17 +131,59 @@ def retry_restaurant_hubrise_order_sync(
     order = db.query(Order).filter(Order.id == order_id, Order.restaurant_id == restaurant_id).first()
     if not order:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
-    if order.type not in {"pickup", "delivery"}:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Only pickup and delivery orders can be retried on HubRise")
+    if order.type not in {"pickup", "delivery", "onsite"}:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="This order type cannot be retried on HubRise")
 
     order.hubrise_sync_status = "pending"
     order.hubrise_last_error = None
     db.commit()
 
-    background_tasks.add_task(sync_order_to_hubrise, order.id)
+    if order.hubrise_order_id:
+        background_tasks.add_task(sync_order_items_to_hubrise, order.id)
+        message = "HubRise order patch retry scheduled"
+    else:
+        background_tasks.add_task(sync_order_to_hubrise, order.id)
+        message = "HubRise order sync retry scheduled"
     return HubriseRetryOrderResponse(
         restaurant_id=restaurant_id,
         order_id=order.id,
         hubrise_sync_status="pending",
-        message="HubRise order sync retry scheduled",
+        message=message,
+    )
+
+
+@router.get("/restaurants/{restaurant_id}/hubrise/orders/{order_id}", response_model=HubriseOrderDebugResponse)
+def get_restaurant_hubrise_order_debug(
+    restaurant_id: int,
+    order_id: int,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_admin),
+):
+    restaurant = db.query(Restaurant).filter(Restaurant.id == restaurant_id).first()
+    if not restaurant:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Restaurant not found")
+
+    order = db.query(Order).filter(Order.id == order_id, Order.restaurant_id == restaurant_id).first()
+    if not order:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+
+    latest_log = (
+        db.query(HubriseOrderLog)
+        .filter(HubriseOrderLog.order_id == order.id)
+        .order_by(HubriseOrderLog.created_at.desc(), HubriseOrderLog.id.desc())
+        .first()
+    )
+
+    return HubriseOrderDebugResponse(
+        restaurant_id=restaurant_id,
+        order_id=order.id,
+        order_type=order.type,
+        order_status=order.status,
+        is_draft=order.is_draft,
+        hubrise_order_id=order.hubrise_order_id,
+        hubrise_raw_status=order.hubrise_raw_status,
+        hubrise_sync_status=order.hubrise_sync_status,
+        hubrise_last_error=order.hubrise_last_error,
+        hubrise_synced_at=order.hubrise_synced_at,
+        latest_log=HubriseOrderLogResponse.model_validate(latest_log) if latest_log else None,
     )
