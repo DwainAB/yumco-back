@@ -2,6 +2,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, s
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from app.db.database import get_db
+from app.models.hubrise_connection import HubriseConnection
 from app.models.order import Order
 from app.models.restaurant import Restaurant
 from app.models.restaurant_config import RestaurantConfig
@@ -13,6 +14,7 @@ from app.models.user import User
 from app.services.order_analytics_service import get_order_analytics
 from app.services.order_service import create_order
 from app.services.receipt_service import generate_receipt
+from app.services.hubrise_service import sync_order_status_to_hubrise, sync_order_to_hubrise
 from app.services.order_email_service import (
     send_order_confirmed,
     send_order_preparing,
@@ -103,9 +105,23 @@ def create_order_route(restaurant_id: int, data: OrderCreate, background_tasks: 
     if restaurant_config and restaurant_config.payment_online and not restaurant_config.payment_onsite:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Online payment is required for this restaurant")
     order = create_order(db, restaurant_id, data)
+    hubrise_connection = None
+    if order.type in {"pickup", "delivery"}:
+        hubrise_connection = db.query(HubriseConnection).filter(HubriseConnection.restaurant_id == restaurant_id).first()
+        if hubrise_connection:
+            order.hubrise_sync_status = "pending"
+            order.hubrise_last_error = None
+            db.commit()
+            db.refresh(order)
+            print(
+                "[hubrise] scheduling order sync",
+                {"order_id": order.id, "restaurant_id": restaurant_id, "location_id": hubrise_connection.hubrise_location_id},
+            )
     restaurant = db.query(Restaurant).filter(Restaurant.id == restaurant_id).first()
     background_tasks.add_task(send_order_confirmed, order, restaurant)
     background_tasks.add_task(notify_new_order, restaurant_id, order.order_number)
+    if hubrise_connection:
+        background_tasks.add_task(sync_order_to_hubrise, order.id)
     return order
 
 @router.get("/{restaurant_id}/orders", response_model=list[OrderResponse])
@@ -162,6 +178,8 @@ def update_order(restaurant_id: int, order_id: int, data: OrderUpdate, backgroun
             background_tasks.add_task(send_order_completed, order, restaurant)
         elif new_status == "cancelled":
             background_tasks.add_task(send_order_cancelled, order, restaurant)
+        if order.hubrise_order_id:
+            background_tasks.add_task(sync_order_status_to_hubrise, order.id, new_status)
 
     return order
 
@@ -201,6 +219,8 @@ def update_order_status(restaurant_id: int, order_id: int, data: OrderStatusUpda
         background_tasks.add_task(send_order_completed, order, restaurant)
     elif data.status == "cancelled":
         background_tasks.add_task(send_order_cancelled, order, restaurant)
+    if order.hubrise_order_id:
+        background_tasks.add_task(sync_order_status_to_hubrise, order.id, data.status)
 
     return order
 

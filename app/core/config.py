@@ -35,6 +35,7 @@ class Settings(BaseSettings):
     HUBRISE_CLIENT_SECRET: str | None = None
     HUBRISE_REDIRECT_URI: str | None = "http://192.168.1.45:8000/integrations/hubrise/callback"
     HUBRISE_RESULT_REDIRECT_URI: str | None = None
+    HUBRISE_WEBHOOK_URL: str | None = None
 
     class Config: 
         env_file = ".env"

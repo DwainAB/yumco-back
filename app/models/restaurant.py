@@ -35,5 +35,6 @@ class Restaurant(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     config = relationship("RestaurantConfig", uselist=False)
     hubrise_connection = relationship("HubriseConnection", uselist=False, back_populates="restaurant")
+    hubrise_order_logs = relationship("HubriseOrderLog", back_populates="restaurant")
     delivery_tiers = relationship("DeliveryTier")
     opening_hours = relationship("OpeningHours")

@@ -1,12 +1,21 @@
 from urllib.parse import urlencode
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response, status
 from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.db.database import get_db
-from app.services.hubrise_service import exchange_code_for_tokens, parse_restaurant_id_from_state, save_hubrise_connection
+from app.services.hubrise_service import (
+    apply_hubrise_order_update,
+    exchange_code_for_tokens,
+    parse_restaurant_id_from_state,
+    register_hubrise_order_callback,
+    save_hubrise_connection,
+    verify_hubrise_signature,
+)
+from app.services.order_email_service import send_order_cancelled, send_order_completed, send_order_preparing
+from app.models.restaurant import Restaurant
 
 
 router = APIRouter(tags=["hubrise"])
@@ -45,7 +54,8 @@ async def hubrise_callback(
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Missing code")
 
         token_data = await exchange_code_for_tokens(code)
-        save_hubrise_connection(db, restaurant_id, token_data)
+        connection = save_hubrise_connection(db, restaurant_id, token_data)
+        await register_hubrise_order_callback(connection)
         return RedirectResponse(
             url=_build_hubrise_result_url(
                 "success",
@@ -74,3 +84,30 @@ async def hubrise_callback(
             ),
             status_code=status.HTTP_303_SEE_OTHER,
         )
+
+
+@router.post("/integrations/hubrise/webhook", status_code=status.HTTP_200_OK)
+async def hubrise_webhook(
+    request: Request,
+    db: Session = Depends(get_db),
+    x_hubrise_hmac_sha256: str | None = Header(default=None),
+):
+    raw_body = await request.body()
+    if not verify_hubrise_signature(raw_body, x_hubrise_hmac_sha256):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid HubRise signature")
+
+    payload = await request.json()
+    print("[hubrise] webhook received", payload)
+    result = apply_hubrise_order_update(db, payload)
+    if result is not None:
+        order, previous_status, current_status = result
+        if current_status != previous_status:
+            restaurant = db.query(Restaurant).filter(Restaurant.id == order.restaurant_id).first()
+            if restaurant:
+                if current_status == "preparing":
+                    await send_order_preparing(order, restaurant)
+                elif current_status == "completed":
+                    await send_order_completed(order, restaurant)
+                elif current_status == "cancelled":
+                    await send_order_cancelled(order, restaurant)
+    return Response(status_code=status.HTTP_200_OK)
