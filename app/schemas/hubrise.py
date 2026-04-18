@@ -20,3 +20,10 @@ class HubriseTestOrderResponse(BaseModel):
     payload: dict[str, Any]
     response: dict[str, Any]
     sent_at: datetime
+
+
+class HubriseRetryOrderResponse(BaseModel):
+    restaurant_id: int
+    order_id: int
+    hubrise_sync_status: str
+    message: str

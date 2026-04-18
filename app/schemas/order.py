@@ -59,6 +59,7 @@ class OrderResponse(BaseModel):
     customer_id: int | None = None
     type: str
     status: str
+    is_draft: bool = False
     hubrise_raw_status: str | None = None
     payment_status: str
     amount_total: float
@@ -73,6 +74,15 @@ class OrderResponse(BaseModel):
     address: AddressResponse | None = None
     items: list[OrderItemResponse] = []
     created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class OrderSubmitResponse(BaseModel):
+    id: int
+    status: str
+    is_draft: bool
 
     class Config:
         from_attributes = True

@@ -6,15 +6,16 @@ from app.models.hubrise_connection import HubriseConnection
 from app.models.order import Order
 from app.models.restaurant import Restaurant
 from app.models.restaurant_config import RestaurantConfig
+from app.models.table import Table
 from app.models.opening_hours import OpeningHours
-from app.schemas.order import OrderCreate, OrderItemCreate, OrderUpdate, OrderResponse, OrderStatusUpdate
+from app.schemas.order import OrderCreate, OrderItemCreate, OrderSubmitResponse, OrderUpdate, OrderResponse, OrderStatusUpdate
 from app.schemas.order_analytics import OrderAnalyticsResponse
 from app.core.security import get_current_user
 from app.models.user import User
 from app.services.order_analytics_service import get_order_analytics
 from app.services.order_service import create_order
 from app.services.receipt_service import generate_receipt
-from app.services.hubrise_service import sync_order_status_to_hubrise, sync_order_to_hubrise
+from app.services.hubrise_service import sync_order_items_to_hubrise, sync_order_status_to_hubrise, sync_order_to_hubrise
 from app.services.order_email_service import (
     send_order_confirmed,
     send_order_preparing,
@@ -105,6 +106,8 @@ def create_order_route(restaurant_id: int, data: OrderCreate, background_tasks: 
     if restaurant_config and restaurant_config.payment_online and not restaurant_config.payment_onsite:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Online payment is required for this restaurant")
     order = create_order(db, restaurant_id, data)
+    if order.is_draft:
+        return order
     hubrise_connection = None
     if order.type in {"pickup", "delivery"}:
         hubrise_connection = db.query(HubriseConnection).filter(HubriseConnection.restaurant_id == restaurant_id).first()
@@ -122,6 +125,42 @@ def create_order_route(restaurant_id: int, data: OrderCreate, background_tasks: 
     background_tasks.add_task(notify_new_order, restaurant_id, order.order_number)
     if hubrise_connection:
         background_tasks.add_task(sync_order_to_hubrise, order.id)
+    return order
+
+
+@router.post("/{restaurant_id}/orders/{order_id}/submit", response_model=OrderSubmitResponse)
+def submit_onsite_order(
+    restaurant_id: int,
+    order_id: int,
+    background_tasks: BackgroundTasks,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    order = db.query(Order).filter(Order.id == order_id, Order.restaurant_id == restaurant_id).first()
+    if not order:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+    if order.type != "onsite":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Only onsite orders can be submitted")
+    if not order.is_draft:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Order is already submitted")
+
+    order.is_draft = False
+    db.commit()
+    db.refresh(order)
+
+    hubrise_connection = db.query(HubriseConnection).filter(HubriseConnection.restaurant_id == restaurant_id).first()
+    if hubrise_connection:
+        order.hubrise_sync_status = "pending"
+        order.hubrise_last_error = None
+        db.commit()
+        db.refresh(order)
+        print(
+            "[hubrise] scheduling onsite order sync",
+            {"order_id": order.id, "restaurant_id": restaurant_id, "location_id": hubrise_connection.hubrise_location_id},
+        )
+        background_tasks.add_task(sync_order_to_hubrise, order.id)
+
+    background_tasks.add_task(notify_new_order, restaurant_id, order.order_number)
     return order
 
 @router.get("/{restaurant_id}/orders", response_model=list[OrderResponse])
@@ -156,6 +195,8 @@ def update_order(restaurant_id: int, order_id: int, data: OrderUpdate, backgroun
 
     update_data = data.model_dump(exclude_unset=True)
     new_status = update_data.get("status")
+    if order.is_draft and new_status is not None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Draft onsite orders must be submitted before changing status")
 
     if new_status == "preparing" and "preparing_by" not in update_data:
         update_data["preparing_by"] = current_user.id
@@ -199,6 +240,8 @@ def update_order_status(restaurant_id: int, order_id: int, data: OrderStatusUpda
     order = db.query(Order).filter(Order.id == order_id, Order.restaurant_id == restaurant_id).first()
     if not order:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+    if order.is_draft:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Draft onsite orders must be submitted before changing status")
 
     order.status = data.status
 
@@ -207,6 +250,10 @@ def update_order_status(restaurant_id: int, order_id: int, data: OrderStatusUpda
     elif data.status == "completed":
         from datetime import datetime, timezone
         order.completed_at = datetime.now(timezone.utc)
+    if data.status in {"completed", "cancelled"} and order.table_id:
+        table = db.query(Table).filter(Table.id == order.table_id).first()
+        if table:
+            table.is_available = True
 
     db.commit()
     db.refresh(order)
@@ -226,7 +273,14 @@ def update_order_status(restaurant_id: int, order_id: int, data: OrderStatusUpda
 
 
 @router.post("/{restaurant_id}/orders/{order_id}/items", response_model=OrderResponse)
-def add_order_items(restaurant_id: int, order_id: int, items: list[OrderItemCreate], current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+def add_order_items(
+    restaurant_id: int,
+    order_id: int,
+    items: list[OrderItemCreate],
+    background_tasks: BackgroundTasks,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     from app.models.order_item import OrderItem
     from app.models.product import Product
     from app.models.menu import Menu
@@ -236,7 +290,6 @@ def add_order_items(restaurant_id: int, order_id: int, items: list[OrderItemCrea
     order = db.query(Order).filter(Order.id == order_id, Order.restaurant_id == restaurant_id).first()
     if not order:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
-
     added_total = 0
 
     for item in items:
@@ -304,11 +357,20 @@ def add_order_items(restaurant_id: int, order_id: int, items: list[OrderItemCrea
     order.amount_total = float(order.amount_total) + added_total
     db.commit()
     db.refresh(order)
+    if order.type == "onsite" and order.hubrise_order_id:
+        background_tasks.add_task(sync_order_items_to_hubrise, order.id)
     return order
 
 
 @router.delete("/{restaurant_id}/orders/{order_id}/items/{item_id}", response_model=OrderResponse)
-def remove_order_item(restaurant_id: int, order_id: int, item_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+def remove_order_item(
+    restaurant_id: int,
+    order_id: int,
+    item_id: int,
+    background_tasks: BackgroundTasks,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     from app.models.order_item import OrderItem
 
     order = db.query(Order).filter(Order.id == order_id, Order.restaurant_id == restaurant_id).first()
@@ -319,16 +381,27 @@ def remove_order_item(restaurant_id: int, order_id: int, item_id: int, current_u
     if not item:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item not found")
 
+    child_items = []
+    if item.parent_order_item_id is None:
+        child_items = db.query(OrderItem).filter(OrderItem.parent_order_item_id == item.id).all()
+
     if item.quantity > 1:
         item.quantity -= 1
         item.subtotal = float(item.unit_price) * item.quantity
         order.amount_total = float(order.amount_total) - float(item.unit_price)
+        for child in child_items:
+            child.quantity = item.quantity
+            child.subtotal = float(child.unit_price) * child.quantity
     else:
         order.amount_total = float(order.amount_total) - float(item.subtotal)
+        for child in child_items:
+            db.delete(child)
         db.delete(item)
 
     db.commit()
     db.refresh(order)
+    if order.type == "onsite" and order.hubrise_order_id:
+        background_tasks.add_task(sync_order_items_to_hubrise, order.id)
     return order
 
 

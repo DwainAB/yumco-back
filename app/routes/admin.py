@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from app.db.database import get_db
 from app.models.user import User
@@ -7,10 +7,10 @@ from app.models.restaurant import Restaurant
 from app.models.hubrise_connection import HubriseConnection
 from app.models.role import Role
 from app.schemas.user import UserResponse
-from app.schemas.hubrise import HubriseTestOrderRequest, HubriseTestOrderResponse
+from app.schemas.hubrise import HubriseRetryOrderResponse, HubriseTestOrderRequest, HubriseTestOrderResponse
 from app.schemas.restaurant import RestaurantHubriseStatusResponse, RestaurantResponse
 from app.services.user_service import get_user_by_id, delete_user
-from app.services.hubrise_service import send_hubrise_test_order
+from app.services.hubrise_service import send_hubrise_test_order, sync_order_to_hubrise
 from app.core.security import get_current_user
 from datetime import datetime, timezone
 
@@ -102,4 +102,39 @@ async def send_restaurant_hubrise_test_order(
         payload=payload,
         response=response,
         sent_at=datetime.now(timezone.utc),
+    )
+
+
+@router.post("/restaurants/{restaurant_id}/hubrise/retry/orders/{order_id}", response_model=HubriseRetryOrderResponse)
+def retry_restaurant_hubrise_order_sync(
+    restaurant_id: int,
+    order_id: int,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_admin),
+):
+    restaurant = db.query(Restaurant).filter(Restaurant.id == restaurant_id).first()
+    if not restaurant:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Restaurant not found")
+
+    connection = db.query(HubriseConnection).filter(HubriseConnection.restaurant_id == restaurant_id).first()
+    if not connection:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="HubRise connection not found for this restaurant")
+
+    order = db.query(Order).filter(Order.id == order_id, Order.restaurant_id == restaurant_id).first()
+    if not order:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+    if order.type not in {"pickup", "delivery"}:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Only pickup and delivery orders can be retried on HubRise")
+
+    order.hubrise_sync_status = "pending"
+    order.hubrise_last_error = None
+    db.commit()
+
+    background_tasks.add_task(sync_order_to_hubrise, order.id)
+    return HubriseRetryOrderResponse(
+        restaurant_id=restaurant_id,
+        order_id=order.id,
+        hubrise_sync_status="pending",
+        message="HubRise order sync retry scheduled",
     )

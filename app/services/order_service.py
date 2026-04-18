@@ -118,6 +118,8 @@ def create_order(db: Session, restaurant_id: int, data: OrderCreate) -> Order:
         table = db.query(Table).filter(Table.id == data.table_id, Table.restaurant_id == restaurant_id).first()
         if not table:
             raise HTTPException(status_code=400, detail=f"Table {data.table_id} not found for this restaurant")
+        if data.type == "onsite":
+            table.is_available = False
 
     # 6. Create order
     order = Order(
@@ -125,6 +127,7 @@ def create_order(db: Session, restaurant_id: int, data: OrderCreate) -> Order:
         restaurant_id=restaurant_id,
         customer_id=customer_id,
         type=data.type,
+        is_draft=(data.type == "onsite"),
         comment=data.comment,
         requested_time=data.requested_time,
         table_id=data.table_id,

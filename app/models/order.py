@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Numeric, ForeignKey, DateTime
+from sqlalchemy import Boolean, Column, Integer, String, Numeric, ForeignKey, DateTime
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 from app.db.database import Base
@@ -12,6 +12,7 @@ class Order(Base):
     customer_id = Column(Integer, ForeignKey("customers.id", ondelete="SET NULL"), nullable=True)
     type = Column(String, nullable=False)  # delivery | pickup | onsite
     status = Column(String, default="pending")  # pending | preparing | completed | cancelled
+    is_draft = Column(Boolean, nullable=False, default=False)
     payment_status = Column(String, default="unpaid")  # unpaid | awaiting_payment | paid | refunded
     amount_total = Column(Numeric(10, 2), nullable=False, default=0)
     stripe_checkout_session_id = Column(String, nullable=True)

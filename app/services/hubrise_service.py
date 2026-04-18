@@ -19,6 +19,7 @@ from app.models.order import Order
 from app.models.order_item import OrderItem
 from app.models.product import Product
 from app.models.restaurant import Restaurant
+from app.models.table import Table
 from app.schemas.hubrise import HubriseTestOrderRequest
 
 HUBRISE_TOKEN_URL = "https://manager.hubrise.com/oauth2/v1/token"
@@ -144,8 +145,10 @@ def verify_hubrise_signature(raw_body: bytes, signature: str | None) -> bool:
     return hmac.compare_digest(expected, signature)
 
 
-def map_hubrise_status_to_yumco(hubrise_status: str | None) -> str | None:
+def map_hubrise_status_to_yumco(hubrise_status: str | None, order_type: str | None = None) -> str | None:
     if hubrise_status in {"new", "received"}:
+        return "pending"
+    if order_type == "onsite" and hubrise_status in {"accepted", "in_preparation", "awaiting_collection", "in_delivery"}:
         return "pending"
     if hubrise_status in {"accepted", "in_preparation", "awaiting_collection", "in_delivery"}:
         return "preparing"
@@ -176,7 +179,7 @@ def apply_hubrise_order_update(db: Session, event_payload: dict) -> tuple[Order,
         return None
 
     hubrise_status = new_state.get("status")
-    yumco_status = map_hubrise_status_to_yumco(hubrise_status)
+    yumco_status = map_hubrise_status_to_yumco(hubrise_status, order.type)
     previous_yumco_status = order.status
 
     order.hubrise_order_id = hubrise_order_id
@@ -189,6 +192,10 @@ def apply_hubrise_order_update(db: Session, event_payload: dict) -> tuple[Order,
         order.status = yumco_status
         if yumco_status == "completed" and not order.completed_at:
             order.completed_at = datetime.now(timezone.utc)
+        if yumco_status in {"completed", "cancelled"} and order.table_id:
+            table = db.query(Table).filter(Table.id == order.table_id).first()
+            if table:
+                table.is_available = True
 
     db.commit()
     db.refresh(order)
@@ -229,7 +236,7 @@ def _child_items_by_parent(order: Order) -> dict[int, list[OrderItem]]:
     return grouped
 
 
-def build_hubrise_order_payload(order: Order) -> dict:
+def build_hubrise_order_payload(order: Order, table_number: str | None = None) -> dict:
     child_items = _child_items_by_parent(order)
     items = []
 
@@ -258,7 +265,12 @@ def build_hubrise_order_payload(order: Order) -> dict:
         items.append(item_payload)
 
     customer_payload = None
-    if order.customer:
+    if order.type == "onsite" and table_number:
+        customer_payload = {
+            "first_name": "Table",
+            "last_name": str(table_number),
+        }
+    elif order.customer:
         customer_payload = {
             "first_name": order.customer.first_name,
             "last_name": order.customer.last_name,
@@ -274,6 +286,8 @@ def build_hubrise_order_payload(order: Order) -> dict:
             customer_payload["country"] = order.address.country
 
     seller_notes: list[str] = []
+    if table_number:
+        seller_notes.append(f"Table {table_number}.")
     if order.payment_status == "paid":
         seller_notes.append("Commande deja payee sur Yumco.")
     else:
@@ -311,6 +325,35 @@ def build_hubrise_order_payload(order: Order) -> dict:
         ]
 
     return payload
+
+
+def build_hubrise_order_patch_payload(order: Order, table_number: str | None = None) -> dict:
+    base_payload = build_hubrise_order_payload(order, table_number=table_number)
+    patch_items = []
+    for item in base_payload["items"]:
+        patch_item = {
+            "product_name": item["product_name"],
+            "price": item["price"],
+            "quantity": item["quantity"],
+        }
+        if "customer_notes" in item:
+            patch_item["customer_notes"] = item["customer_notes"]
+        if "options" in item:
+            patch_item["options"] = item["options"]
+        patch_items.append(patch_item)
+    patch_payload: dict = {
+        "items": patch_items,
+        "seller_notes": base_payload["seller_notes"],
+    }
+    if "customer_notes" in base_payload:
+        patch_payload["customer_notes"] = base_payload["customer_notes"]
+    if "payments" in base_payload:
+        patch_payload["payments"] = base_payload["payments"]
+    if "expected_time" in base_payload:
+        patch_payload["expected_time"] = base_payload["expected_time"]
+    if "expected_time_pickup" in base_payload:
+        patch_payload["expected_time_pickup"] = base_payload["expected_time_pickup"]
+    return patch_payload
 
 
 def _create_hubrise_log(db: Session, order: Order, connection: HubriseConnection, payload: dict) -> HubriseOrderLog:
@@ -373,7 +416,7 @@ async def sync_order_to_hubrise(order_id: int) -> None:
             .filter(Order.id == order_id)
             .first()
         )
-        if not order or order.type not in {"pickup", "delivery"}:
+        if not order or order.type not in {"pickup", "delivery", "onsite"}:
             print("[hubrise] sync skipped", {"order_id": order_id, "reason": "order_missing_or_unsupported_type"})
             return
 
@@ -382,7 +425,13 @@ async def sync_order_to_hubrise(order_id: int) -> None:
             print("[hubrise] sync skipped", {"order_id": order_id, "reason": "no_connection"})
             return
 
-        payload = build_hubrise_order_payload(order)
+        table_number = None
+        if order.table_id:
+            table = db.query(Table).filter(Table.id == order.table_id).first()
+            if table:
+                table_number = table.table_number
+
+        payload = build_hubrise_order_payload(order, table_number=table_number)
         log = _create_hubrise_log(db, order, connection, payload)
         order.hubrise_sync_status = "pending"
         order.hubrise_last_error = None
@@ -521,6 +570,132 @@ async def sync_order_status_to_hubrise(order_id: int, yumco_status: str) -> None
         else:
             order.hubrise_last_error = (
                 response_data.get("message") or response.text or "HubRise status sync failed"
+            )[:255]
+        db.commit()
+    finally:
+        db.close()
+
+
+async def sync_order_items_to_hubrise(order_id: int) -> None:
+    db = SessionLocal()
+    try:
+        order = (
+            db.query(Order)
+            .options(
+                joinedload(Order.customer),
+                joinedload(Order.address),
+                joinedload(Order.items),
+            )
+            .filter(Order.id == order_id)
+            .first()
+        )
+        if not order or not order.hubrise_order_id:
+            print("[hubrise] order patch skipped", {"order_id": order_id, "reason": "missing_order_or_hubrise_id"})
+            return
+
+        connection = db.query(HubriseConnection).filter(HubriseConnection.restaurant_id == order.restaurant_id).first()
+        if not connection:
+            print("[hubrise] order patch skipped", {"order_id": order_id, "reason": "no_connection"})
+            return
+
+        table_number = None
+        if order.table_id:
+            table = db.query(Table).filter(Table.id == order.table_id).first()
+            if table:
+                table_number = table.table_number
+
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            current_response = await client.get(
+                f"{HUBRISE_API_BASE_URL}/location/orders/{order.hubrise_order_id}",
+                headers={"X-Access-Token": connection.access_token},
+            )
+
+        try:
+            current_order_data = current_response.json() if current_response.content else {}
+        except ValueError:
+            current_order_data = {"raw_response": current_response.text}
+
+        if not current_response.is_success:
+            order.hubrise_sync_status = "failed"
+            order.hubrise_last_error = (
+                current_order_data.get("message") or current_response.text or "HubRise order fetch failed"
+            )[:255]
+            db.commit()
+            print(
+                "[hubrise] order patch skipped",
+                {
+                    "order_id": order_id,
+                    "reason": "fetch_failed",
+                    "status_code": current_response.status_code,
+                    "response": current_order_data,
+                },
+            )
+            return
+
+        payload = build_hubrise_order_patch_payload(order, table_number=table_number)
+        existing_items = current_order_data.get("items") or []
+        delete_ops = [
+            {"id": item["id"], "deleted": True}
+            for item in existing_items
+            if item.get("id") and not item.get("deleted")
+        ]
+        payload["items"] = delete_ops + payload["items"]
+        print(
+            "[hubrise] sending order patch",
+            {
+                "order_id": order_id,
+                "hubrise_order_id": order.hubrise_order_id,
+                "payload": payload,
+            },
+        )
+
+        try:
+            async with httpx.AsyncClient(timeout=20.0) as client:
+                response = await client.patch(
+                    f"{HUBRISE_API_BASE_URL}/location/orders/{order.hubrise_order_id}",
+                    json=payload,
+                    headers={
+                        "X-Access-Token": connection.access_token,
+                        "Content-Type": "application/json",
+                    },
+                )
+        except Exception as exc:
+            db.rollback()
+            order = db.query(Order).filter(Order.id == order_id).first()
+            if order:
+                order.hubrise_sync_status = "failed"
+                order.hubrise_last_error = f"HubRise order patch error: {exc}"[:255]
+                db.commit()
+            print(f"[hubrise] order patch failed for order {order_id}: {exc}")
+            return
+
+        try:
+            response_data = response.json() if response.content else {}
+        except ValueError:
+            response_data = {"raw_response": response.text}
+
+        print(
+            "[hubrise] patch response received",
+            {
+                "order_id": order_id,
+                "status_code": response.status_code,
+                "response": response_data,
+            },
+        )
+
+        order = db.query(Order).filter(Order.id == order_id).first()
+        if not order:
+            db.rollback()
+            return
+
+        if response.is_success:
+            order.hubrise_sync_status = "sent"
+            order.hubrise_last_error = None
+            order.hubrise_synced_at = datetime.now(timezone.utc)
+        else:
+            order.hubrise_sync_status = "failed"
+            order.hubrise_last_error = (
+                response_data.get("message") or response.text or "HubRise order patch failed"
             )[:255]
         db.commit()
     finally:
