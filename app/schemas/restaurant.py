@@ -140,3 +140,18 @@ class RestaurantSubscriptionUsage(BaseModel):
     is_quota_reached: bool
     is_token_quota_reached: bool
     upgrade_message: str | None = None
+
+
+class RestaurantHubriseStatusResponse(BaseModel):
+    connected: bool
+    restaurant_id: int
+    hubrise_account_id: str | None = None
+    hubrise_location_id: str | None = None
+    token_type: str | None = None
+    scope: str | None = None
+    last_order_id: int | None = None
+    last_hubrise_order_id: str | None = None
+    last_hubrise_raw_status: str | None = None
+    last_hubrise_sync_status: str | None = None
+    last_hubrise_error: str | None = None
+    last_hubrise_synced_at: datetime | None = None

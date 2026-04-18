@@ -59,6 +59,7 @@ class OrderResponse(BaseModel):
     customer_id: int | None = None
     type: str
     status: str
+    hubrise_raw_status: str | None = None
     payment_status: str
     amount_total: float
     comment: str | None = None

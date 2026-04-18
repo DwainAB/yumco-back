@@ -12,9 +12,14 @@ from app.db.database import SessionLocal
 from app.core.config import settings
 from app.models.hubrise_connection import HubriseConnection
 from app.models.hubrise_order_log import HubriseOrderLog
+from app.models.menu import Menu
+from app.models.menu_category import MenuCategory
+from app.models.menu_option import MenuOption
 from app.models.order import Order
 from app.models.order_item import OrderItem
+from app.models.product import Product
 from app.models.restaurant import Restaurant
+from app.schemas.hubrise import HubriseTestOrderRequest
 
 HUBRISE_TOKEN_URL = "https://manager.hubrise.com/oauth2/v1/token"
 HUBRISE_API_BASE_URL = "https://api.hubrise.com/v1"
@@ -327,6 +332,23 @@ def _mark_order_sync_failure(order: Order, error_message: str) -> None:
     order.hubrise_synced_at = None
 
 
+async def _post_hubrise_order(connection: HubriseConnection, payload: dict) -> tuple[int, dict]:
+    async with httpx.AsyncClient(timeout=20.0) as client:
+        response = await client.post(
+            f"{HUBRISE_API_BASE_URL}/location/orders",
+            json=payload,
+            headers={
+                "X-Access-Token": connection.access_token,
+                "Content-Type": "application/json",
+            },
+        )
+    try:
+        response_data = response.json() if response.content else {}
+    except ValueError:
+        response_data = {"raw_response": response.text}
+    return response.status_code, response_data
+
+
 def map_yumco_status_to_hubrise(yumco_status: str | None) -> str | None:
     if yumco_status == "preparing":
         return "accepted"
@@ -375,15 +397,7 @@ async def sync_order_to_hubrise(order_id: int) -> None:
         )
 
         try:
-            async with httpx.AsyncClient(timeout=20.0) as client:
-                response = await client.post(
-                    f"{HUBRISE_API_BASE_URL}/location/orders",
-                    json=payload,
-                    headers={
-                        "X-Access-Token": connection.access_token,
-                        "Content-Type": "application/json",
-                    },
-                )
+            status_code, response_data = await _post_hubrise_order(connection, payload)
         except Exception as exc:
             db.rollback()
             order = db.query(Order).filter(Order.id == order_id).first()
@@ -397,15 +411,11 @@ async def sync_order_to_hubrise(order_id: int) -> None:
             print(f"[hubrise] order sync failed for order {order_id}: {exc}")
             return
 
-        try:
-            response_data = response.json() if response.content else {}
-        except ValueError:
-            response_data = {"raw_response": response.text}
         print(
             "[hubrise] response received",
             {
                 "order_id": order_id,
-                "status_code": response.status_code,
+                "status_code": status_code,
                 "response": response_data,
             },
         )
@@ -417,7 +427,7 @@ async def sync_order_to_hubrise(order_id: int) -> None:
             return
 
         log.response_payload = response_data
-        if response.is_success:
+        if 200 <= status_code < 300:
             order.hubrise_order_id = response_data.get("id")
             order.hubrise_sync_status = "sent"
             order.hubrise_last_error = None
@@ -515,3 +525,175 @@ async def sync_order_status_to_hubrise(order_id: int, yumco_status: str) -> None
         db.commit()
     finally:
         db.close()
+
+
+def _build_test_customer(order_type: str) -> dict:
+    customer = {
+        "first_name": "Jean",
+        "last_name": "Dupont",
+        "phone": "0601020304",
+    }
+    if order_type == "delivery":
+        customer.update(
+            {
+                "address_1": "10 Rue de la Paix",
+                "postal_code": "75002",
+                "city": "Paris",
+                "country": "FR",
+            }
+        )
+    return customer
+
+
+def build_hubrise_test_order_payload(db: Session, restaurant_id: int, data: HubriseTestOrderRequest) -> tuple[HubriseConnection, dict]:
+    connection = db.query(HubriseConnection).filter(HubriseConnection.restaurant_id == restaurant_id).first()
+    if not connection:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="HubRise connection not found for this restaurant")
+
+    quantity = max(1, data.quantity)
+    items: list[dict] = []
+    total_amount = 0.0
+
+    if data.item_kind == "product":
+        product = (
+            db.query(Product)
+            .filter(
+                Product.restaurant_id == restaurant_id,
+                Product.is_deleted.is_(False),
+                Product.is_available.is_(True),
+                Product.available_online.is_(True),
+            )
+            .order_by(Product.id.asc())
+            .first()
+        )
+        if not product:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No available online product found for this restaurant")
+
+        unit_price = float(product.price)
+        total_amount = unit_price * quantity
+        items.append(
+            {
+                "private_ref": f"test-product-{product.id}",
+                "product_name": product.name,
+                "price": _money(unit_price),
+                "quantity": str(quantity),
+            }
+        )
+    else:
+        menu = (
+            db.query(Menu)
+            .options(joinedload(Menu.categories).joinedload(MenuCategory.options))
+            .filter(
+                Menu.restaurant_id == restaurant_id,
+                Menu.is_available.is_(True),
+                Menu.available_online.is_(True),
+            )
+            .order_by(Menu.id.asc())
+            .first()
+        )
+        if not menu:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No available online menu found for this restaurant")
+
+        selected_options: list[dict] = []
+        option_total = 0.0
+        flat_options: list[MenuOption] = []
+        for category in menu.categories:
+            flat_options.extend(category.options)
+
+        if data.include_paid_option:
+            paid_option = next((option for option in flat_options if float(option.additional_price) > 0), None)
+            if paid_option:
+                selected_options.append(
+                    {
+                        "option_list_name": "Customization",
+                        "name": paid_option.name,
+                        "price": _money(float(paid_option.additional_price)),
+                        "quantity": 1,
+                    }
+                )
+                option_total += float(paid_option.additional_price)
+
+        if data.include_free_option:
+            free_option = next((option for option in flat_options if float(option.additional_price) == 0), None)
+            if free_option:
+                if not any(option["name"] == free_option.name for option in selected_options):
+                    selected_options.append(
+                        {
+                            "option_list_name": "Customization",
+                            "name": free_option.name,
+                            "price": _money(float(free_option.additional_price)),
+                            "quantity": 1,
+                        }
+                    )
+
+        unit_price = float(menu.price) + option_total
+        total_amount = unit_price * quantity
+        item_payload = {
+            "private_ref": f"test-menu-{menu.id}",
+            "product_name": menu.name,
+            "price": _money(float(menu.price)),
+            "quantity": str(quantity),
+        }
+        if selected_options:
+            item_payload["options"] = selected_options
+        items.append(item_payload)
+        total_amount = (
+            float(menu.price) * quantity
+            + sum(float(option["price"].split()[0]) * quantity for option in selected_options)
+        )
+
+    test_ref_suffix = int(datetime.now(timezone.utc).timestamp())
+    payload = {
+        "channel": "yumco-test",
+        "ref": f"TEST-{restaurant_id}-{test_ref_suffix}",
+        "private_ref": f"test-{restaurant_id}-{data.item_kind}-{data.order_type}-{test_ref_suffix}",
+        "status": "new",
+        "service_type": _service_type(data.order_type),
+        "asap": True,
+        "items": items,
+        "seller_notes": "Commande de test HubRise envoyee par Yumco.",
+        "customer": _build_test_customer(data.order_type),
+    }
+    if data.order_type == "delivery":
+        payload["seller_notes"] += " Livraison de test."
+    else:
+        payload["seller_notes"] += " Retrait sur place de test."
+
+    if data.is_paid:
+        payload["payments"] = [
+            {
+                "name": "Yumco",
+                "ref": "YUMCO-TEST",
+                "amount": _money(total_amount),
+                "info": {"payment_status": "paid", "test": True},
+            }
+        ]
+        payload["seller_notes"] += " Commande deja payee."
+    else:
+        payload["seller_notes"] += " Paiement a encaisser sur place."
+
+    return connection, payload
+
+
+async def send_hubrise_test_order(db: Session, restaurant_id: int, data: HubriseTestOrderRequest) -> tuple[dict, dict]:
+    connection, payload = build_hubrise_test_order_payload(db, restaurant_id, data)
+    status_code, response_data = await _post_hubrise_order(connection, payload)
+    print(
+        "[hubrise] test order response",
+        {
+            "restaurant_id": restaurant_id,
+            "status_code": status_code,
+            "payload": payload,
+            "response": response_data,
+        },
+    )
+    if not 200 <= status_code < 300:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail={
+                "message": "HubRise test order failed",
+                "status_code": status_code,
+                "response": response_data,
+            },
+        )
+    return payload, response_data
