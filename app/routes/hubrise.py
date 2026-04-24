@@ -5,7 +5,11 @@ from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
+from app.core.security import get_current_user
 from app.db.database import get_db
+from app.models.hubrise_connection import HubriseConnection
+from app.models.order import Order
+from app.models.role import Role
 from app.services.hubrise_service import (
     apply_hubrise_order_update,
     exchange_code_for_tokens,
@@ -16,6 +20,8 @@ from app.services.hubrise_service import (
 )
 from app.services.order_email_service import send_order_cancelled, send_order_completed, send_order_preparing
 from app.models.restaurant import Restaurant
+from app.models.user import User
+from app.schemas.restaurant import RestaurantHubriseStatusResponse
 
 
 router = APIRouter(tags=["hubrise"])
@@ -37,6 +43,49 @@ def _build_hubrise_result_url(status_value: str, restaurant_id: int | None = Non
 
     separator = "&" if "?" in redirect_uri else "?"
     return f"{redirect_uri}{separator}{urlencode(params)}"
+
+
+@router.get("/restaurants/{restaurant_id}/hubrise/status", response_model=RestaurantHubriseStatusResponse)
+def get_restaurant_hubrise_status(
+    restaurant_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    restaurant = db.query(Restaurant).filter(Restaurant.id == restaurant_id, Restaurant.is_deleted.is_(False)).first()
+    if not restaurant:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Restaurant not found")
+
+    has_access = current_user.is_admin or (
+        db.query(Role)
+        .filter(Role.restaurant_id == restaurant_id, Role.user_id == current_user.id)
+        .first()
+        is not None
+    )
+    if not has_access:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized for this restaurant")
+
+    connection = db.query(HubriseConnection).filter(HubriseConnection.restaurant_id == restaurant_id).first()
+    last_order = (
+        db.query(Order)
+        .filter(Order.restaurant_id == restaurant_id, Order.hubrise_order_id.isnot(None))
+        .order_by(Order.hubrise_synced_at.desc().nullslast(), Order.id.desc())
+        .first()
+    )
+
+    return RestaurantHubriseStatusResponse(
+        connected=connection is not None,
+        restaurant_id=restaurant_id,
+        hubrise_account_id=connection.hubrise_account_id if connection else None,
+        hubrise_location_id=connection.hubrise_location_id if connection else None,
+        token_type=connection.token_type if connection else None,
+        scope=connection.scope if connection else None,
+        last_order_id=last_order.id if last_order else None,
+        last_hubrise_order_id=last_order.hubrise_order_id if last_order else None,
+        last_hubrise_raw_status=last_order.hubrise_raw_status if last_order else None,
+        last_hubrise_sync_status=last_order.hubrise_sync_status if last_order else None,
+        last_hubrise_error=last_order.hubrise_last_error if last_order else None,
+        last_hubrise_synced_at=last_order.hubrise_synced_at if last_order else None,
+    )
 
 
 @router.get("/integrations/hubrise/callback")

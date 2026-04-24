@@ -1,5 +1,6 @@
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
+from sqlalchemy import extract
 from sqlalchemy.orm import Session
 from app.db.database import get_db
 from app.models.hubrise_connection import HubriseConnection
@@ -164,12 +165,24 @@ def submit_onsite_order(
     return order
 
 @router.get("/{restaurant_id}/orders", response_model=list[OrderResponse])
-def list_orders(restaurant_id: int, table_id: int | None = Query(default=None), status_filter: str | None = Query(default=None, alias="status"), current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+def list_orders(
+    restaurant_id: int,
+    table_id: int | None = Query(default=None),
+    status_filter: str | None = Query(default=None, alias="status"),
+    month: int | None = Query(default=None, ge=1, le=12),
+    year: int | None = Query(default=None, ge=2000, le=2100),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     q = db.query(Order).filter(Order.restaurant_id == restaurant_id)
     if table_id is not None:
         q = q.filter(Order.table_id == table_id)
     if status_filter is not None:
         q = q.filter(Order.status == status_filter)
+    if month is not None:
+        q = q.filter(extract("month", Order.created_at) == month)
+    if year is not None:
+        q = q.filter(extract("year", Order.created_at) == year)
     return q.order_by(Order.created_at.desc()).all()
 
 
