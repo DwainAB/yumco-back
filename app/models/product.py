@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Boolean, Numeric, ForeignKey, DateTime
+from sqlalchemy import Column, Integer, String, Boolean, Numeric, ForeignKey, DateTime, JSON
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 from app.db.database import Base
@@ -18,6 +18,7 @@ class Product(Base):
     available_online = Column(Boolean, default=True)
     available_onsite = Column(Boolean, default=True)
     group = Column(String, nullable=True)
+    allergens = Column(JSON, nullable=False, default=list)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     category = relationship("Category")

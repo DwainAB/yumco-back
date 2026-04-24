@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from decimal import Decimal
 from datetime import datetime
 
@@ -19,6 +19,7 @@ class ProductCreate(BaseModel):
     available_online: bool = True
     available_onsite: bool = True
     group: str | None = None
+    allergens: list[str] = Field(default_factory=list)
 
 class ProductUpdate(BaseModel):
     name: str | None = None
@@ -30,6 +31,7 @@ class ProductUpdate(BaseModel):
     available_online: bool | None = None
     available_onsite: bool | None = None
     group: str | None = None
+    allergens: list[str] | None = None
 
 class ProductResponse(BaseModel):
     id: int
@@ -43,6 +45,7 @@ class ProductResponse(BaseModel):
     available_online: bool
     available_onsite: bool
     group: str | None = None
+    allergens: list[str] = Field(default_factory=list)
     created_at: datetime
 
     class Config:

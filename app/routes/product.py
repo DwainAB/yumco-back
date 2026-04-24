@@ -64,6 +64,7 @@ async def add_product(
     available_online: bool = Form(True),
     available_onsite: bool = Form(True),
     group: str | None = Form(None),
+    allergens: list[str] = Form([]),
     image: UploadFile | None = File(None),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
@@ -81,6 +82,7 @@ async def add_product(
         available_online=available_online,
         available_onsite=available_onsite,
         group=group,
+        allergens=allergens,
         image_url=image_url
     )
     return create_product(db, data, restaurant_id)
@@ -97,6 +99,7 @@ async def edit_product(
     available_online: bool | None = Form(None),
     available_onsite: bool | None = Form(None),
     group: str | None = Form(None),
+    allergens: list[str] | None = Form(None),
     image: UploadFile | None = File(None),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
@@ -114,6 +117,7 @@ async def edit_product(
         "available_online": available_online,
         "available_onsite": available_onsite,
         "group": group,
+        "allergens": allergens,
     }
     if image:
         fields["image_url"] = upload_image(await image.read())
