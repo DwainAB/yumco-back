@@ -3,6 +3,7 @@ from datetime import datetime, timedelta, timezone
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
+from app.models.hubrise_connection import HubriseConnection
 from app.models.restaurant import Restaurant
 
 
@@ -81,6 +82,15 @@ def apply_subscription_plan(db: Session, restaurant: Restaurant, subscription_pl
         restaurant.ai_token_usage_count = 0
     elif restaurant.ai_cycle_started_at is None:
         restaurant.ai_cycle_started_at = _utcnow()
+
+    if previous_plan != "starter" and normalized_plan == "starter":
+        connection = (
+            db.query(HubriseConnection)
+            .filter(HubriseConnection.restaurant_id == restaurant.id)
+            .first()
+        )
+        if connection:
+            db.delete(connection)
 
     db.commit()
     db.refresh(restaurant)
