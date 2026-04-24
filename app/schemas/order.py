@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, EmailStr
 from datetime import datetime
 from app.schemas.customer import CustomerCreate, CustomerResponse
 from app.schemas.address import AddressCreate, AddressResponse
@@ -25,6 +25,15 @@ class OrderStatusUpdate(BaseModel):
     status: str  # preparing | completed | cancelled
     preparing_by: int | None = None
     preparation_time: int | None = None  # minutes, pour l'email uniquement
+
+
+class OrderReceiptEmailRequest(BaseModel):
+    email: EmailStr | None = None
+
+
+class OrderReceiptEmailResponse(BaseModel):
+    message: str
+    email: EmailStr
 
 
 class OrderUpdate(BaseModel):

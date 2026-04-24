@@ -1,4 +1,5 @@
 import asyncio
+import base64
 
 import httpx
 
@@ -7,7 +8,7 @@ from app.core.config import settings
 BREVO_SEND_EMAIL_URL = "https://api.brevo.com/v3/smtp/email"
 
 
-async def send_email(to: str, subject: str, body: str):
+async def send_email(to: str, subject: str, body: str, attachments: list[dict[str, str]] | None = None):
     if not settings.BREVO_API_KEY:
         raise RuntimeError("BREVO_API_KEY is not configured")
 
@@ -26,6 +27,8 @@ async def send_email(to: str, subject: str, body: str):
         "subject": subject,
         "htmlContent": body,
     }
+    if attachments:
+        payload["attachment"] = attachments
 
     headers = {
         "accept": "application/json",
@@ -47,3 +50,10 @@ async def send_email_safe(to: str, subject: str, body: str, timeout_seconds: flo
     except Exception as exc:
         print("[email] send failed", {"to": to, "subject": subject, "error": str(exc)})
         return False
+
+
+def build_base64_attachment(filename: str, content: bytes) -> dict[str, str]:
+    return {
+        "name": filename,
+        "content": base64.b64encode(content).decode("ascii"),
+    }

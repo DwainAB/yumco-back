@@ -88,6 +88,34 @@ def get_restaurant_hubrise_status(
     )
 
 
+@router.delete("/restaurants/{restaurant_id}/hubrise/connection", status_code=status.HTTP_204_NO_CONTENT)
+def delete_restaurant_hubrise_connection(
+    restaurant_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    restaurant = db.query(Restaurant).filter(Restaurant.id == restaurant_id, Restaurant.is_deleted.is_(False)).first()
+    if not restaurant:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Restaurant not found")
+
+    has_access = current_user.is_admin or (
+        db.query(Role)
+        .filter(Role.restaurant_id == restaurant_id, Role.user_id == current_user.id)
+        .first()
+        is not None
+    )
+    if not has_access:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized for this restaurant")
+
+    connection = db.query(HubriseConnection).filter(HubriseConnection.restaurant_id == restaurant_id).first()
+    if not connection:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="HubRise is not connected for this restaurant")
+
+    db.delete(connection)
+    db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
 @router.get("/integrations/hubrise/callback")
 async def hubrise_callback(
     code: str | None = Query(default=None),

@@ -9,7 +9,7 @@ from app.models.restaurant import Restaurant
 from app.models.restaurant_config import RestaurantConfig
 from app.models.table import Table
 from app.models.opening_hours import OpeningHours
-from app.schemas.order import OrderCreate, OrderItemCreate, OrderSubmitResponse, OrderUpdate, OrderResponse, OrderStatusUpdate
+from app.schemas.order import OrderCreate, OrderItemCreate, OrderSubmitResponse, OrderUpdate, OrderResponse, OrderStatusUpdate, OrderReceiptEmailRequest, OrderReceiptEmailResponse
 from app.schemas.order_analytics import OrderAnalyticsResponse
 from app.core.security import get_current_user
 from app.models.user import User
@@ -22,6 +22,7 @@ from app.services.order_email_service import (
     send_order_preparing,
     send_order_completed,
     send_order_cancelled,
+    send_order_receipt,
 )
 from app.services.notification_service import notify_new_order
 from datetime import datetime, timedelta, date
@@ -253,13 +254,47 @@ def get_receipt(restaurant_id: int, order_id: int, current_user: User = Depends(
     return StreamingResponse(pdf, media_type="application/pdf", headers={"Content-Disposition": f"inline; filename={filename}"})
 
 
+@router.post("/{restaurant_id}/orders/{order_id}/receipt/send", response_model=OrderReceiptEmailResponse)
+def send_receipt_email(
+    restaurant_id: int,
+    order_id: int,
+    data: OrderReceiptEmailRequest,
+    background_tasks: BackgroundTasks,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    order = db.query(Order).filter(Order.id == order_id, Order.restaurant_id == restaurant_id).first()
+    if not order:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+
+    restaurant = db.query(Restaurant).filter(Restaurant.id == restaurant_id).first()
+    if not restaurant:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Restaurant not found")
+
+    target_email = data.email or (order.customer.email if order.customer else None)
+    if not target_email:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No customer email available for this order",
+        )
+
+    background_tasks.add_task(send_order_receipt, order, restaurant, target_email)
+    return {
+        "message": "Receipt email queued successfully",
+        "email": target_email,
+    }
+
+
 @router.post("/{restaurant_id}/orders/{order_id}/status", response_model=OrderResponse)
 def update_order_status(restaurant_id: int, order_id: int, data: OrderStatusUpdate, background_tasks: BackgroundTasks, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     order = db.query(Order).filter(Order.id == order_id, Order.restaurant_id == restaurant_id).first()
     if not order:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
-    if order.is_draft:
+    hubrise_connection = db.query(HubriseConnection).filter(HubriseConnection.restaurant_id == restaurant_id).first()
+    if order.is_draft and hubrise_connection:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Draft onsite orders must be submitted before changing status")
+    if order.is_draft and not hubrise_connection:
+        order.is_draft = False
 
     order.status = data.status
 

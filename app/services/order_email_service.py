@@ -1,4 +1,5 @@
-from app.services.email_service import send_email
+from app.services.email_service import build_base64_attachment, send_email
+from app.services.receipt_service import generate_receipt
 
 
 def _items_html(order) -> str:
@@ -123,4 +124,23 @@ async def send_order_cancelled(order, restaurant):
         to=order.customer.email,
         subject=f"{restaurant.name} – Commande {order.order_number} annulée",
         body=html
+    )
+
+
+async def send_order_receipt(order, restaurant, to_email: str):
+    customer_name = order.customer.first_name if order.customer else "client"
+    body = f"""
+    <p>Bonjour <strong>{customer_name}</strong>,</p>
+    <p>Veuillez trouver en pièce jointe le reçu de votre commande <strong>{order.order_number}</strong>.</p>
+    <p><em>L'équipe {restaurant.name}</em></p>
+    """
+    html = _base_template(restaurant.name, "Votre reçu de commande", body, order)
+    pdf = generate_receipt(order, restaurant)
+    filename = f"ticket_{order.order_number.replace('#', '')}.pdf"
+    attachment = build_base64_attachment(filename, pdf.getvalue())
+    await send_email(
+        to=to_email,
+        subject=f"{restaurant.name} – Reçu de la commande {order.order_number}",
+        body=html,
+        attachments=[attachment],
     )
