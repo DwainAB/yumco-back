@@ -67,3 +67,25 @@ class UserUpdate(BaseModel):
     email : EmailStr | None = None
     password : str | None = None
     role: str | None = None
+
+
+class UserDeviceRegisterRequest(BaseModel):
+    expo_push_token: str
+    platform: str | None = None
+    device_name: str | None = None
+
+
+class UserDeviceUnregisterRequest(BaseModel):
+    expo_push_token: str
+
+
+class UserDeviceResponse(BaseModel):
+    id: int
+    expo_push_token: str
+    platform: str | None = None
+    device_name: str | None = None
+    is_active: bool
+    last_seen_at: datetime
+
+    class Config:
+        from_attributes = True

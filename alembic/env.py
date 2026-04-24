@@ -21,7 +21,7 @@ if config.config_file_name is not None:
 # from myapp import mymodel
 # target_metadata = mymodel.Base.metadata
 from app.db.database import Base
-from app.models import user, restaurant, role, address, restaurant_config, delivery_tiers, opening_hours, category, product, menu, menu_category, menu_option, all_you_can_eat, table, reservation, customer, order, order_item, ai_conversation, ai_conversation_message, pending_online_order, hubrise_connection, hubrise_order_log
+from app.models import user, user_device, restaurant, role, address, restaurant_config, delivery_tiers, opening_hours, category, product, menu, menu_category, menu_option, all_you_can_eat, table, reservation, customer, order, order_item, ai_conversation, ai_conversation_message, pending_online_order, hubrise_connection, hubrise_order_log
 
 target_metadata = Base.metadata
 # other values from the config, defined by the needs of env.py,

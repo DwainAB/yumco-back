@@ -1,6 +1,9 @@
+from datetime import datetime, timezone
+
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 from app.models.user import User
+from app.models.user_device import UserDevice
 from app.models.role import Role
 from app.schemas.user import UserCreate, UserUpdate
 from app.core.security import hash_password
@@ -73,11 +76,57 @@ def update_user(db: Session, user: User, data: UserUpdate, current_user: User):
     for field, value in data.model_dump(exclude_unset=True).items():
         if field == "password":
             setattr(user, "hashed_password", hash_password(value))
-        elif field != "role":
+        elif field not in {"role", "expo_push_token"}:
             setattr(user, field, value)
     db.commit()
     db.refresh(user)
     return user
+
+
+def register_user_device(
+    db: Session,
+    user: User,
+    expo_push_token: str,
+    platform: str | None = None,
+    device_name: str | None = None,
+):
+    device = db.query(UserDevice).filter(UserDevice.expo_push_token == expo_push_token).first()
+    if device is None:
+        device = UserDevice(user_id=user.id, expo_push_token=expo_push_token)
+        db.add(device)
+    else:
+        device.user_id = user.id
+
+    device.platform = platform
+    device.device_name = device_name
+    device.is_active = True
+    device.last_seen_at = datetime.now(timezone.utc)
+    db.commit()
+    db.refresh(device)
+    return device
+
+
+def unregister_user_device(db: Session, user: User, expo_push_token: str) -> None:
+    device = (
+        db.query(UserDevice)
+        .filter(UserDevice.user_id == user.id, UserDevice.expo_push_token == expo_push_token)
+        .first()
+    )
+    if device:
+        device.is_active = False
+        device.last_seen_at = datetime.now(timezone.utc)
+        db.commit()
+
+
+def deactivate_push_tokens(db: Session, tokens: list[str]) -> None:
+    if not tokens:
+        return
+    (
+        db.query(UserDevice)
+        .filter(UserDevice.expo_push_token.in_(tokens))
+        .update({"is_active": False}, synchronize_session=False)
+    )
+    db.commit()
 
 #Delete a user
 def delete_user(db: Session, user: User):

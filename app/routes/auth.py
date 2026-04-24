@@ -2,8 +2,8 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from pydantic import EmailStr
 from app.db.database import get_db
-from app.schemas.user import UserCreate, UserResponse, UserLogin, UserUpdate
-from app.services.user_service import get_user_by_email, get_user_by_id, create_user, update_user, delete_user, generate_password
+from app.schemas.user import UserCreate, UserResponse, UserLogin, UserUpdate, UserDeviceRegisterRequest, UserDeviceResponse, UserDeviceUnregisterRequest
+from app.services.user_service import get_user_by_email, get_user_by_id, create_user, update_user, delete_user, generate_password, register_user_device, unregister_user_device
 from app.core.security import verify_password, create_access_token, get_current_user, hash_password
 from app.models.user import User
 from app.models.role import Role
@@ -62,6 +62,30 @@ def me(current_user: User = Depends(get_current_user)):
 @router.put("/me", response_model=UserResponse)
 def update_me(data: UserUpdate, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     return update_user(db, current_user, data, current_user)
+
+
+@router.post("/me/devices/push-token", response_model=UserDeviceResponse)
+def register_my_push_device(
+    data: UserDeviceRegisterRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    return register_user_device(
+        db,
+        current_user,
+        data.expo_push_token,
+        data.platform,
+        data.device_name,
+    )
+
+
+@router.delete("/me/devices/push-token", status_code=status.HTTP_204_NO_CONTENT)
+def unregister_my_push_device(
+    data: UserDeviceUnregisterRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    unregister_user_device(db, current_user, data.expo_push_token)
 
 @router.delete("/me", status_code=status.HTTP_204_NO_CONTENT)
 def delete_me(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
