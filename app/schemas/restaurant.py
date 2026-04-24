@@ -43,6 +43,7 @@ class RestaurantUpdate(BaseModel):
     stripe_id: str | None = None
     timezone: str | None = None
     subscription_plan: str | None = None
+    subscription_status: str | None = None
     ai_monthly_quota: int | None = None
     ai_usage_count: int | None = None
     ai_monthly_token_quota: int | None = None

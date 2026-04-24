@@ -15,17 +15,20 @@ from app.schemas.stripe_billing import (
     StripeSubscriptionUpdateRequest,
 )
 from app.services.stripe_billing_service import (
-    cancel_restaurant_subscription_in_stripe,
-    create_subscription_checkout_session,
     get_admin_subscription_links,
     list_restaurant_invoices,
-    sync_restaurant_subscription,
-    update_restaurant_subscription_in_stripe,
 )
 from app.services.subscription_service import get_subscription_usage
 
 
 router = APIRouter(prefix="/restaurants", tags=["subscriptions"])
+
+
+def _manual_subscription_billing_disabled() -> None:
+    raise HTTPException(
+        status_code=status.HTTP_501_NOT_IMPLEMENTED,
+        detail="Restaurant subscription billing is managed manually outside Yumco for now",
+    )
 
 
 def _require_restaurant_owner_or_admin(restaurant_id: int, current_user: User, db: Session) -> Restaurant:
@@ -59,18 +62,7 @@ def create_subscription_checkout(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    restaurant = _require_restaurant_owner_or_admin(restaurant_id, current_user, db)
-    session = create_subscription_checkout_session(
-        db,
-        restaurant,
-        data.subscription_plan,
-        data.subscription_interval,
-        data.has_tablet_rental,
-        data.has_printer_rental,
-        str(data.success_url),
-        str(data.cancel_url),
-    )
-    return {"checkout_session_id": session.id, "checkout_url": session.url}
+    _manual_subscription_billing_disabled()
 
 
 @router.put("/{restaurant_id}/subscription/stripe", response_model=RestaurantResponse)
@@ -80,15 +72,7 @@ def update_subscription_in_stripe(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    restaurant = _require_restaurant_owner_or_admin(restaurant_id, current_user, db)
-    return update_restaurant_subscription_in_stripe(
-        db,
-        restaurant,
-        data.subscription_plan,
-        data.subscription_interval,
-        data.has_tablet_rental,
-        data.has_printer_rental,
-    )
+    _manual_subscription_billing_disabled()
 
 
 @router.post("/{restaurant_id}/subscription/stripe/sync", response_model=RestaurantResponse)
@@ -97,8 +81,7 @@ def sync_subscription_from_stripe(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    restaurant = _require_restaurant_owner_or_admin(restaurant_id, current_user, db)
-    return sync_restaurant_subscription(db, restaurant)
+    _manual_subscription_billing_disabled()
 
 
 @router.delete("/{restaurant_id}/subscription/stripe", response_model=RestaurantResponse)
@@ -108,8 +91,7 @@ def cancel_subscription_in_stripe(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    restaurant = _require_restaurant_owner_or_admin(restaurant_id, current_user, db)
-    return cancel_restaurant_subscription_in_stripe(db, restaurant, at_period_end=at_period_end)
+    _manual_subscription_billing_disabled()
 
 
 @router.get("/{restaurant_id}/subscription/stripe-links", response_model=StripeAdminSubscriptionLinksResponse)

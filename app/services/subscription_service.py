@@ -5,6 +5,11 @@ from sqlalchemy.orm import Session
 
 from app.models.hubrise_connection import HubriseConnection
 from app.models.restaurant import Restaurant
+from app.models.user import User
+
+
+ALLOWED_ACCESS_SUBSCRIPTION_STATUSES = {None, "active", "trialing"}
+ACTIVE_SUBSCRIPTION_STATUSES = {"active", "trialing"}
 
 
 PLAN_LIMITS = {
@@ -109,14 +114,10 @@ def get_subscription_usage(db: Session, restaurant: Restaurant) -> dict:
     cancel_at_period_end = bool(getattr(restaurant, "subscription_cancel_at_period_end", False))
     current_period_end = getattr(restaurant, "subscription_current_period_ends_at", None)
 
-    if subscription_status == "canceled":
-        display_status = "Annulé"
-    elif cancel_at_period_end:
-        display_status = "Se termine en fin de période"
-    elif subscription_status in {"active", "trialing", "past_due", "unpaid"}:
-        display_status = "En cours"
+    if subscription_status in ACTIVE_SUBSCRIPTION_STATUSES:
+        display_status = "Actif"
     else:
-        display_status = "Aucun abonnement"
+        display_status = "Inactif"
 
     return {
         "plan": restaurant.subscription_plan,
@@ -141,6 +142,27 @@ def get_subscription_usage(db: Session, restaurant: Restaurant) -> dict:
         "is_token_quota_reached": is_token_quota_reached,
         "upgrade_message": PLAN_UPGRADE_MESSAGES.get(restaurant.subscription_plan) if (not is_ai_enabled or is_quota_reached or is_token_quota_reached) else None,
     }
+
+
+def ensure_user_has_subscription_access(db: Session, user: User) -> None:
+    if user.is_admin:
+        return
+
+    for role in user.roles:
+        restaurant = (
+            db.query(Restaurant)
+            .filter(Restaurant.id == role.restaurant_id, Restaurant.is_deleted.is_(False))
+            .first()
+        )
+        if not restaurant:
+            continue
+
+        subscription_status = getattr(restaurant, "subscription_status", None)
+        if subscription_status not in ALLOWED_ACCESS_SUBSCRIPTION_STATUSES:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Restaurant subscription is inactive",
+            )
 
 
 def estimate_text_tokens(text: str) -> int:

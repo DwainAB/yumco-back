@@ -7,6 +7,7 @@ from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
 from app.db.database import get_db
 from app.models.user import User
+from app.services.subscription_service import ensure_user_has_subscription_access
 
 #Configure bcrypt as the hashing algorithm
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -50,4 +51,5 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
     user = db.query(User).filter(User.email == email).first()
     if user is None:
         raise credentials_exception
+    ensure_user_has_subscription_access(db, user)
     return user
