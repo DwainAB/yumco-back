@@ -1,3 +1,4 @@
+from types import SimpleNamespace
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy import extract
@@ -9,12 +10,23 @@ from app.models.restaurant import Restaurant
 from app.models.restaurant_config import RestaurantConfig
 from app.models.table import Table
 from app.models.opening_hours import OpeningHours
-from app.schemas.order import OrderCreate, OrderItemCreate, OrderSubmitResponse, OrderUpdate, OrderResponse, OrderStatusUpdate, OrderReceiptEmailRequest, OrderReceiptEmailResponse
+from app.schemas.order import (
+    DeliveryQuoteRequest,
+    DeliveryQuoteResponse,
+    OrderCreate,
+    OrderItemCreate,
+    OrderSubmitResponse,
+    OrderUpdate,
+    OrderResponse,
+    OrderStatusUpdate,
+    OrderReceiptEmailRequest,
+    OrderReceiptEmailResponse,
+)
 from app.schemas.order_analytics import OrderAnalyticsResponse
 from app.core.security import get_current_user
 from app.models.user import User
 from app.services.order_analytics_service import get_order_analytics
-from app.services.order_service import create_order
+from app.services.order_service import create_order, recalculate_order_delivery_totals, resolve_delivery_quote
 from app.services.receipt_service import generate_receipt
 from app.services.hubrise_service import sync_order_items_to_hubrise, sync_order_status_to_hubrise, sync_order_to_hubrise
 from app.services.order_email_service import (
@@ -29,6 +41,21 @@ from datetime import datetime, timedelta, date
 from zoneinfo import ZoneInfo
 
 router = APIRouter(prefix="/restaurants", tags=["orders"])
+
+
+@router.post("/{restaurant_id}/delivery/quote", response_model=DeliveryQuoteResponse)
+def get_delivery_quote(
+    restaurant_id: int,
+    data: DeliveryQuoteRequest,
+    db: Session = Depends(get_db),
+):
+    restaurant = db.query(Restaurant).filter(Restaurant.id == restaurant_id).first()
+    if not restaurant:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Restaurant not found")
+
+    address = SimpleNamespace(**data.address.model_dump())
+    quote = resolve_delivery_quote(restaurant, address, data.items_subtotal)
+    return DeliveryQuoteResponse(**quote)
 
 @router.get("/{restaurant_id}/orders/slots")
 def get_order_slots(
@@ -407,7 +434,13 @@ def add_order_items(
         else:
             raise HTTPException(status_code=400, detail="Each item must have a product_id, menu_id, or all_you_can_eat_id")
 
-    order.amount_total = float(order.amount_total) + added_total
+    if order.type == "delivery":
+        db.flush()
+        db.refresh(order)
+        recalculate_order_delivery_totals(db, order)
+    else:
+        order.items_subtotal = float(order.items_subtotal) + added_total
+        order.amount_total = float(order.items_subtotal) + float(order.delivery_fee)
     db.commit()
     db.refresh(order)
     if order.type == "onsite" and order.hubrise_order_id:
@@ -441,15 +474,24 @@ def remove_order_item(
     if item.quantity > 1:
         item.quantity -= 1
         item.subtotal = float(item.unit_price) * item.quantity
-        order.amount_total = float(order.amount_total) - float(item.unit_price)
+        if item.parent_order_item_id is None:
+            order.items_subtotal = float(order.items_subtotal) - float(item.unit_price)
         for child in child_items:
             child.quantity = item.quantity
             child.subtotal = float(child.unit_price) * child.quantity
     else:
-        order.amount_total = float(order.amount_total) - float(item.subtotal)
+        if item.parent_order_item_id is None:
+            order.items_subtotal = float(order.items_subtotal) - float(item.subtotal)
         for child in child_items:
             db.delete(child)
         db.delete(item)
+
+    if order.type == "delivery":
+        db.flush()
+        db.refresh(order)
+        recalculate_order_delivery_totals(db, order)
+    else:
+        order.amount_total = float(order.items_subtotal) + float(order.delivery_fee)
 
     db.commit()
     db.refresh(order)

@@ -5,7 +5,6 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.core.security import get_current_user
 from app.db.database import get_db
-from app.models.order import Order
 from app.models.restaurant import Restaurant
 from app.models.restaurant_config import RestaurantConfig
 from app.models.role import Role
@@ -24,7 +23,6 @@ from app.services.stripe_connect_service import (
     create_connected_account,
     create_draft_order_checkout_session,
     create_dashboard_login_link,
-    create_order_checkout_session,
     refresh_connected_account,
     sync_order_payment_from_charge,
     sync_order_payment_from_checkout,
@@ -100,25 +98,6 @@ def create_express_dashboard_link(
     return {"url": link.url, "expires_at": None}
 
 
-@router.post("/restaurants/{restaurant_id}/orders/{order_id}/checkout-session", response_model=StripeCheckoutSessionResponse)
-def create_order_checkout(
-    restaurant_id: int,
-    order_id: int,
-    data: StripeCheckoutSessionRequest,
-    db: Session = Depends(get_db),
-):
-    restaurant = db.query(Restaurant).filter(Restaurant.id == restaurant_id, Restaurant.is_deleted.is_(False)).first()
-    if not restaurant:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Restaurant not found")
-
-    order = db.query(Order).filter(Order.id == order_id, Order.restaurant_id == restaurant_id).first()
-    if not order:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
-
-    session = create_order_checkout_session(db, restaurant, order, str(data.success_url), str(data.cancel_url))
-    return {"checkout_session_id": session.id, "checkout_url": session.url}
-
-
 @router.post("/restaurants/{restaurant_id}/orders/checkout-session", response_model=StripeCheckoutSessionResponse)
 def create_draft_order_checkout(
     restaurant_id: int,
@@ -152,7 +131,7 @@ async def handle_stripe_webhook(
             event = stripe.Event.construct_from(await request.json(), stripe.api_key)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid Stripe payload") from exc
-    except stripe.error.SignatureVerificationError as exc:
+    except stripe.SignatureVerificationError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid Stripe signature") from exc
 
     event_type = event["type"]

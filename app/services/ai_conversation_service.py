@@ -1,4 +1,5 @@
 from fastapi import HTTPException, status
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.models.ai_conversation import AIConversation
@@ -17,13 +18,30 @@ def create_ai_conversation(db: Session, restaurant_id: int, user_id: int, title:
     return conversation
 
 
-def list_ai_conversations(db: Session, restaurant_id: int) -> list[AIConversation]:
-    return (
-        db.query(AIConversation)
-        .filter(AIConversation.restaurant_id == restaurant_id)
+def list_ai_conversations(
+    db: Session,
+    restaurant_id: int,
+    page: int,
+    query: str | None = None,
+    page_size: int = 10,
+) -> tuple[list[AIConversation], int]:
+    conversations_query = db.query(AIConversation).filter(AIConversation.restaurant_id == restaurant_id)
+
+    normalized_query = query.strip() if query else None
+    if normalized_query:
+        conversations_query = conversations_query.filter(
+            func.lower(AIConversation.title).contains(normalized_query.lower())
+        )
+
+    total_items = conversations_query.count()
+    items = (
+        conversations_query
         .order_by(AIConversation.updated_at.desc(), AIConversation.created_at.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
         .all()
     )
+    return items, total_items
 
 
 def get_ai_conversation(db: Session, restaurant_id: int, conversation_id: int) -> AIConversation:

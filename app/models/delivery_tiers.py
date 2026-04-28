@@ -9,3 +9,4 @@ class DeliveryTier(Base):
     min_km = Column(Integer, nullable=False)
     max_km = Column(Integer, nullable=False)
     price = Column(Numeric(10, 2), nullable=False)
+    min_order_amount = Column(Numeric(10, 2), nullable=False, default=0)

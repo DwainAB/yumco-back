@@ -13,17 +13,28 @@ async def send_expo_push(tokens: list[str], title: str, body: str, data: dict = 
     if not tokens:
         return
 
-    messages = [
-        {
+    messages = []
+    for token_info in tokens:
+        if isinstance(token_info, str):
+            token = token_info
+            platform = None
+        else:
+            token = token_info.get("expo_push_token")
+            platform = (token_info.get("platform") or "").lower()
+
+        if not token or not token.startswith("ExponentPushToken"):
+            continue
+
+        message = {
             "to": token,
-            "sound": "default",
+            "sound": "sound_notif.wav",
             "title": title,
             "body": body,
             **({"data": data} if data else {}),
         }
-        for token in tokens
-        if token and token.startswith("ExponentPushToken")
-    ]
+        if platform == "android":
+            message["channelId"] = "orders_v2"
+        messages.append(message)
 
     if not messages:
         return
@@ -71,7 +82,13 @@ async def notify_new_reservation(restaurant_id: int, full_name: str, number_of_p
             )
             .all()
         )
-        tokens = [device.expo_push_token for device in devices]
+        tokens = [
+            {
+                "expo_push_token": device.expo_push_token,
+                "platform": device.platform,
+            }
+            for device in devices
+        ]
     finally:
         db.close()
 
@@ -98,7 +115,13 @@ async def notify_new_order(restaurant_id: int, order_number: str):
             )
             .all()
         )
-        tokens = [device.expo_push_token for device in devices]
+        tokens = [
+            {
+                "expo_push_token": device.expo_push_token,
+                "platform": device.platform,
+            }
+            for device in devices
+        ]
     finally:
         db.close()
 

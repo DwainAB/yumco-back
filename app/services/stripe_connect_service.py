@@ -104,53 +104,6 @@ def create_dashboard_login_link(db: Session, restaurant: Restaurant):
     return stripe.Account.create_login_link(restaurant.stripe_id)
 
 
-def create_order_checkout_session(db: Session, restaurant: Restaurant, order: Order, success_url: str, cancel_url: str):
-    restaurant = refresh_connected_account(db, restaurant)
-    if not restaurant.stripe_id:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Restaurant is not connected to Stripe")
-    if not restaurant.stripe_charges_enabled:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Restaurant Stripe account is not ready to accept payments")
-
-    _configure_stripe()
-    session = stripe.checkout.Session.create(
-        mode="payment",
-        success_url=success_url,
-        cancel_url=cancel_url,
-        line_items=[
-            {
-                "quantity": 1,
-                "price_data": {
-                    "currency": "eur",
-                    "unit_amount": _amount_to_cents(order.amount_total),
-                    "product_data": {
-                        "name": f"Commande {order.order_number}",
-                        "description": f"Commande Yumco pour {restaurant.name}",
-                    },
-                },
-            }
-        ],
-        metadata={
-            "restaurant_id": str(restaurant.id),
-            "order_id": str(order.id),
-            "order_number": order.order_number,
-        },
-        payment_intent_data={
-            "metadata": {
-                "restaurant_id": str(restaurant.id),
-                "order_id": str(order.id),
-                "order_number": order.order_number,
-            }
-        },
-        stripe_account=restaurant.stripe_id,
-    )
-
-    order.stripe_checkout_session_id = session.id
-    order.payment_status = "awaiting_payment"
-    db.commit()
-    db.refresh(order)
-    return session
-
-
 def create_draft_order_checkout_session(db: Session, restaurant: Restaurant, order_data: OrderCreate, success_url: str, cancel_url: str):
     restaurant = refresh_connected_account(db, restaurant)
     if not restaurant.stripe_id:

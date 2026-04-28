@@ -37,6 +37,7 @@ def create_reservation(restaurant_id: int, data: ReservationCreate, background_t
     return reservation
 
 @router.put("/{restaurant_id}/reservations/{reservation_id}", response_model=ReservationResponse)
+@router.patch("/{restaurant_id}/reservations/{reservation_id}", response_model=ReservationResponse)
 def update_reservation(restaurant_id: int, reservation_id: int, data: ReservationUpdate, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     reservation = db.query(Reservation).filter(Reservation.id == reservation_id, Reservation.restaurant_id == restaurant_id).first()
     if not reservation:

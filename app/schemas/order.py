@@ -1,4 +1,5 @@
-from pydantic import BaseModel, EmailStr
+from decimal import Decimal
+from pydantic import BaseModel, EmailStr, Field
 from datetime import datetime
 from app.schemas.customer import CustomerCreate, CustomerResponse
 from app.schemas.address import AddressCreate, AddressResponse
@@ -20,6 +21,31 @@ class OrderCreate(BaseModel):
     address: AddressCreate | None = None  # required if type == delivery
     customer: CustomerCreate | None = None  # not required for onsite
     items: list[OrderItemCreate]
+
+
+class DeliveryQuoteRequest(BaseModel):
+    address: AddressCreate
+    items_subtotal: Decimal = Field(ge=0)
+
+
+class DeliveryQuoteTier(BaseModel):
+    min_km: int
+    max_km: int
+    price: float
+    min_order_amount: float
+
+
+class DeliveryQuoteResponse(BaseModel):
+    eligible: bool
+    items_subtotal: float
+    delivery_fee: float
+    amount_total: float
+    distance_km: float
+    shortfall_amount: float = 0
+    next_min_order_amount: float | None = None
+    message: str
+    applied_tier: DeliveryQuoteTier | None = None
+
 
 class OrderStatusUpdate(BaseModel):
     status: str  # preparing | completed | cancelled
@@ -71,6 +97,9 @@ class OrderResponse(BaseModel):
     is_draft: bool = False
     hubrise_raw_status: str | None = None
     payment_status: str
+    items_subtotal: float = 0
+    delivery_fee: float = 0
+    delivery_distance_km: float | None = None
     amount_total: float
     comment: str | None = None
     requested_time: datetime | None = None

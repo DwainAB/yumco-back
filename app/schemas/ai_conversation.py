@@ -3,6 +3,9 @@ from datetime import datetime
 from pydantic import BaseModel, Field
 
 
+AI_CONVERSATIONS_PAGE_SIZE = 10
+
+
 class AIConversationCreate(BaseModel):
     title: str = Field(min_length=1, max_length=120)
 
@@ -34,3 +37,12 @@ class AIConversationMessageResponse(BaseModel):
 
 class AIConversationDetail(AIConversationSummary):
     messages: list[AIConversationMessageResponse] = []
+
+
+class AIConversationListResponse(BaseModel):
+    items: list[AIConversationSummary]
+    page: int
+    page_size: int = AI_CONVERSATIONS_PAGE_SIZE
+    total_items: int
+    total_pages: int
+    query: str | None = None

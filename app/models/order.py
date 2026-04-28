@@ -14,6 +14,9 @@ class Order(Base):
     status = Column(String, default="pending")  # pending | preparing | completed | cancelled
     is_draft = Column(Boolean, nullable=False, default=False)
     payment_status = Column(String, default="unpaid")  # unpaid | awaiting_payment | paid | refunded
+    items_subtotal = Column(Numeric(10, 2), nullable=False, default=0)
+    delivery_fee = Column(Numeric(10, 2), nullable=False, default=0)
+    delivery_distance_km = Column(Numeric(10, 2), nullable=True)
     amount_total = Column(Numeric(10, 2), nullable=False, default=0)
     stripe_checkout_session_id = Column(String, nullable=True)
     stripe_payment_intent_id = Column(String, nullable=True)

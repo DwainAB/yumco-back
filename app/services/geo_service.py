@@ -19,12 +19,40 @@ def _haversine(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     return R * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
 
 
+def _geocode_params(address: str) -> dict:
+    return {
+        "q": address,
+        "format": "json",
+        "limit": 1,
+        "addressdetails": 1,
+    }
+
+
 async def geocode_address(address: str) -> dict:
     """Géocode une adresse texte → {lat, lng, place_name} via Nominatim."""
     async with httpx.AsyncClient() as client:
         response = await client.get(
             f"{NOMINATIM_URL}/search",
-            params={"q": address, "format": "json", "limit": 1, "addressdetails": 1},
+            params=_geocode_params(address),
+            headers={"User-Agent": USER_AGENT},
+            timeout=10,
+        )
+    data = response.json()
+    if not data:
+        raise ValueError(f"Adresse introuvable : {address}")
+    return {
+        "lat": float(data[0]["lat"]),
+        "lng": float(data[0]["lon"]),
+        "place_name": data[0]["display_name"],
+    }
+
+
+def geocode_address_sync(address: str) -> dict:
+    """Géocode une adresse texte en mode synchrone."""
+    with httpx.Client() as client:
+        response = client.get(
+            f"{NOMINATIM_URL}/search",
+            params=_geocode_params(address),
             headers={"User-Agent": USER_AGENT},
             timeout=10,
         )
