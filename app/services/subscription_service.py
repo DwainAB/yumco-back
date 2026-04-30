@@ -5,10 +5,8 @@ from sqlalchemy.orm import Session
 
 from app.models.hubrise_connection import HubriseConnection
 from app.models.restaurant import Restaurant
-from app.models.user import User
 
 
-ALLOWED_ACCESS_SUBSCRIPTION_STATUSES = {None, "active", "trialing"}
 ACTIVE_SUBSCRIPTION_STATUSES = {"active", "trialing"}
 
 
@@ -142,28 +140,6 @@ def get_subscription_usage(db: Session, restaurant: Restaurant) -> dict:
         "is_token_quota_reached": is_token_quota_reached,
         "upgrade_message": PLAN_UPGRADE_MESSAGES.get(restaurant.subscription_plan) if (not is_ai_enabled or is_quota_reached or is_token_quota_reached) else None,
     }
-
-
-def ensure_user_has_subscription_access(db: Session, user: User) -> None:
-    if user.is_admin:
-        return
-
-    for role in user.roles:
-        restaurant = (
-            db.query(Restaurant)
-            .filter(Restaurant.id == role.restaurant_id, Restaurant.is_deleted.is_(False))
-            .first()
-        )
-        if not restaurant:
-            continue
-
-        subscription_status = getattr(restaurant, "subscription_status", None)
-        if subscription_status not in ALLOWED_ACCESS_SUBSCRIPTION_STATUSES:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Restaurant subscription is inactive",
-            )
-
 
 def estimate_text_tokens(text: str) -> int:
     normalized_text = text.strip()
