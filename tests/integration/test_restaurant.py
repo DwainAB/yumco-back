@@ -3,6 +3,8 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
+from app.models.delivery_tiers import DeliveryTier
+from app.models.restaurant import Restaurant
 from tests.integration.conftest import (
     make_user, make_restaurant, make_category, make_product, auth_headers
 )
@@ -139,3 +141,19 @@ def test_delete_product(client: TestClient, db: Session):
 
     res = client.get(f"/restaurants/{restaurant.id}/products", headers=headers)
     assert all(p["id"] != product.id for p in res.json())
+
+
+def test_admin_can_hard_delete_restaurant_with_delivery_tiers(client: TestClient, db: Session):
+    admin = make_user(db, email="admin_delete_restaurant@test.com", is_admin=True)
+    owner = make_user(db, email="owner_delete_restaurant@test.com")
+    restaurant = make_restaurant(db, owner_id=owner.id, name="Delete Me")
+
+    db.add(DeliveryTier(restaurant_id=restaurant.id, min_km=0, max_km=5, price="2.50", min_order_amount="0.00"))
+    db.add(DeliveryTier(restaurant_id=restaurant.id, min_km=5, max_km=10, price="4.50", min_order_amount="0.00"))
+    db.commit()
+
+    res = client.delete(f"/admin/restaurants/{restaurant.id}", headers=auth_headers(admin.email))
+    assert res.status_code == 204
+
+    assert db.query(Restaurant).filter(Restaurant.id == restaurant.id).first() is None
+    assert db.query(DeliveryTier).filter(DeliveryTier.restaurant_id == restaurant.id).count() == 0

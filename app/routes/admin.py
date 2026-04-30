@@ -1,4 +1,5 @@
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
+from sqlalchemy import delete
 from sqlalchemy.orm import Session
 from app.db.database import get_db
 from app.models.user import User
@@ -52,7 +53,8 @@ def admin_delete_restaurant(restaurant_id: int, db: Session = Depends(get_db), _
     restaurant = db.query(Restaurant).filter(Restaurant.id == restaurant_id).first()
     if not restaurant:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Restaurant not found")
-    db.delete(restaurant)
+
+    db.execute(delete(Restaurant).where(Restaurant.id == restaurant_id))
     db.commit()
 
 
