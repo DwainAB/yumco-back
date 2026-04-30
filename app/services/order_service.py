@@ -26,16 +26,26 @@ def _money(value: float | int | Decimal) -> Decimal:
     return Decimal(str(value)).quantize(MONEY_QUANT, rounding=ROUND_HALF_UP)
 
 
-def _build_full_address(address: Address) -> str:
-    return f"{address.street}, {address.postal_code} {address.city}, {address.country}"
-
-
 def _serialize_tier(tier: DeliveryTier) -> dict:
     return {
         "min_km": tier.min_km,
         "max_km": tier.max_km,
         "price": float(tier.price),
         "min_order_amount": float(tier.min_order_amount),
+    }
+
+
+def _unvalidated_delivery_quote(items_subtotal: Decimal) -> dict:
+    return {
+        "eligible": True,
+        "items_subtotal": float(items_subtotal),
+        "delivery_fee": 0.0,
+        "amount_total": float(items_subtotal),
+        "distance_km": None,
+        "shortfall_amount": 0.0,
+        "next_min_order_amount": None,
+        "message": "Adresse non verifiee, commande acceptee",
+        "applied_tier": None,
     }
 
 
@@ -64,9 +74,11 @@ def resolve_delivery_quote(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Restaurant address is not configured")
 
     try:
-        restaurant_point = geocode_address_sync(_build_full_address(restaurant.address))
-        customer_point = geocode_address_sync(_build_full_address(customer_address))
+        restaurant_point = geocode_address_sync(restaurant.address)
+        customer_point = geocode_address_sync(customer_address)
     except ValueError as exc:
+        if "Adresse introuvable" in str(exc):
+            return _unvalidated_delivery_quote(items_subtotal)
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Unable to calculate delivery distance") from exc
@@ -183,7 +195,11 @@ def recalculate_order_delivery_totals(db: Session, order: Order) -> None:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=quote["message"])
 
     order.delivery_fee = _money(quote["delivery_fee"])
-    order.delivery_distance_km = _money(quote["distance_km"])
+    order.delivery_distance_km = (
+        _money(quote["distance_km"])
+        if quote["distance_km"] is not None
+        else None
+    )
     order.amount_total = _money(quote["amount_total"])
 
 
@@ -306,7 +322,11 @@ def create_order(db: Session, restaurant_id: int, data: OrderCreate) -> Order:
         if not quote["eligible"]:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=quote["message"])
         delivery_fee = _money(quote["delivery_fee"])
-        delivery_distance_km = _money(quote["distance_km"])
+        delivery_distance_km = (
+            _money(quote["distance_km"])
+            if quote["distance_km"] is not None
+            else None
+        )
 
     amount_total = items_subtotal + delivery_fee
     order = Order(

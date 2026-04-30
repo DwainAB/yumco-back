@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from tests.integration.conftest import make_user, make_restaurant, make_category, make_product, auth_headers
 from app.models.delivery_tiers import DeliveryTier
 from app.models.restaurant_config import RestaurantConfig
+from app.services.geo_service import geocode_address_sync
 
 
 @pytest.fixture()
@@ -127,3 +128,68 @@ def test_delivery_quote_out_of_zone(client: TestClient, db: Session, setup):
 
     assert res.status_code == 200
     assert res.json()["eligible"] is False
+
+
+def test_geocode_address_sync_falls_back_to_structured_queries():
+    responses = [
+        [],
+        [{
+            "lat": "48.9584",
+            "lon": "2.6044",
+            "display_name": "Avenue La Martine, 77290 Mitry-Mory, France",
+        }],
+    ]
+
+    class FakeResponse:
+        def __init__(self, payload):
+            self._payload = payload
+
+        def json(self):
+            return self._payload
+
+    class FakeClient:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def get(self, url, params, headers, timeout):
+            return FakeResponse(responses.pop(0))
+
+    with patch("app.services.geo_service.httpx.Client", return_value=FakeClient()):
+        result = geocode_address_sync({
+            "street": "Avenue la martine",
+            "city": "Mitry-Mory",
+            "postal_code": "77290",
+            "country": "France",
+        })
+
+    assert result["lat"] == pytest.approx(48.9584)
+    assert result["lng"] == pytest.approx(2.6044)
+    assert "Mitry-Mory" in result["place_name"]
+
+
+def test_delivery_order_is_accepted_when_address_cannot_be_geocoded(client: TestClient, db: Session, setup):
+    r = setup["restaurant"]
+    p = setup["product"]
+
+    with patch("app.services.order_service.geocode_address_sync", side_effect=ValueError("Adresse introuvable : adresse libre")):
+        order_res = client.post(f"/restaurants/{r.id}/orders", json={
+            "type": "delivery",
+            "items": [{"product_id": p.id, "quantity": 1}],
+            "customer": {"first_name": "Jane", "last_name": "Doe", "phone": "+33600000022"},
+            "address": {
+                "street": "Adresse tapée librement",
+                "city": "Mitry-Mory",
+                "postal_code": "77290",
+                "country": "France",
+            },
+        })
+
+    assert order_res.status_code == 201
+    data = order_res.json()
+    assert data["type"] == "delivery"
+    assert float(data["delivery_fee"]) == pytest.approx(0.0)
+    assert data["delivery_distance_km"] is None
+    assert float(data["amount_total"]) == pytest.approx(20.0)

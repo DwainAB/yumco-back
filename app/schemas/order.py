@@ -40,7 +40,7 @@ class DeliveryQuoteResponse(BaseModel):
     items_subtotal: float
     delivery_fee: float
     amount_total: float
-    distance_km: float
+    distance_km: float | None = None
     shortfall_amount: float = 0
     next_min_order_amount: float | None = None
     message: str
