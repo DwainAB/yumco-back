@@ -49,6 +49,38 @@ def test_admin_can_create_restaurant(client: TestClient, db: Session):
     assert res.json()["name"] == "Admin Resto"
 
 
+def test_create_restaurant_rejects_overlapping_delivery_tier_boundaries(client: TestClient, db: Session):
+    admin = make_user(db, email="admin_delivery_overlap@test.com", is_admin=True)
+    res = client.post("/restaurants/", json={
+        "name": "Overlap Resto",
+        "email": "overlapresto@test.com",
+        "phone": "+33100000013",
+        "address": {"street": "13 Rue", "city": "Paris", "postal_code": "75013", "country": "FR"},
+        "delivery_tiers": [
+            {"min_km": 0, "max_km": 10, "price": "4.00", "min_order_amount": "0.00"},
+            {"min_km": 10, "max_km": 15, "price": "6.00", "min_order_amount": "0.00"},
+        ],
+    }, headers=auth_headers(admin.email))
+    assert res.status_code == 422
+    assert "must not overlap or share a boundary" in str(res.json())
+
+
+def test_create_restaurant_allows_stacked_delivery_pricing_on_same_range(client: TestClient, db: Session):
+    admin = make_user(db, email="admin_delivery_stack@test.com", is_admin=True)
+    res = client.post("/restaurants/", json={
+        "name": "Stacked Resto",
+        "email": "stackedresto@test.com",
+        "phone": "+33100000014",
+        "address": {"street": "14 Rue", "city": "Paris", "postal_code": "75014", "country": "FR"},
+        "delivery_tiers": [
+            {"min_km": 0, "max_km": 10, "price": "4.00", "min_order_amount": "0.00"},
+            {"min_km": 0, "max_km": 10, "price": "0.00", "min_order_amount": "25.00"},
+        ],
+    }, headers=auth_headers(admin.email))
+    assert res.status_code == 201
+    assert len(res.json()["delivery_tiers"]) == 2
+
+
 def test_update_restaurant(client: TestClient, db: Session):
     """N'importe quel user authentifié peut mettre à jour (pas de garde dans la route)."""
     owner = make_user(db, email="owner_r3@test.com")

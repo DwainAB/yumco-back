@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from app.core.config import settings
 from app.routes import auth, restaurant, admin, product, menu, upload, all_you_can_eat, table, reservation, customer, order, revenue, performance, customer_analytics, subscription, ai, stripe_connect, hubrise
 from app.services.email_service import send_email
 
@@ -8,7 +9,7 @@ app = FastAPI(title="Yumco API", version="1.0.0")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=settings.CORS_ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

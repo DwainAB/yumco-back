@@ -17,6 +17,21 @@ def _normalize_subscription_plan(value: str | None) -> str | None:
         raise ValueError(f"subscription_plan must be one of: {', '.join(sorted(ALLOWED_SUBSCRIPTION_PLANS))}")
     return normalized
 
+
+def _validate_delivery_tier_ranges(tiers: list[DeliveryTierCreate] | None) -> list[DeliveryTierCreate] | None:
+    if tiers is None:
+        return tiers
+
+    unique_ranges = sorted({(tier.min_km, tier.max_km) for tier in tiers})
+    for index, (current_min, current_max) in enumerate(unique_ranges[:-1]):
+        next_min, next_max = unique_ranges[index + 1]
+        if next_min <= current_max:
+            raise ValueError(
+                "delivery_tiers ranges must not overlap or share a boundary; use identical ranges only when stacking pricing rules"
+            )
+
+    return tiers
+
 #Data required to create a restaurant
 class RestaurantCreate(BaseModel):
     name: str
@@ -34,6 +49,11 @@ class RestaurantCreate(BaseModel):
         normalized = _normalize_subscription_plan(value)
         assert normalized is not None
         return normalized
+
+    @field_validator("delivery_tiers")
+    @classmethod
+    def validate_delivery_tiers(cls, value: list[DeliveryTierCreate] | None) -> list[DeliveryTierCreate] | None:
+        return _validate_delivery_tier_ranges(value)
 
 #Data for updating a restaurant
 class RestaurantUpdate(BaseModel):
@@ -58,6 +78,11 @@ class RestaurantUpdate(BaseModel):
     @classmethod
     def validate_subscription_plan(cls, value: str | None) -> str | None:
         return _normalize_subscription_plan(value)
+
+    @field_validator("delivery_tiers")
+    @classmethod
+    def validate_delivery_tiers(cls, value: list[DeliveryTierCreate] | None) -> list[DeliveryTierCreate] | None:
+        return _validate_delivery_tier_ranges(value)
 
 #Data returned when fetching a restaurant
 class RestaurantResponse(BaseModel):

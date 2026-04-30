@@ -149,6 +149,20 @@ def client() -> TestClient:
     return TestClient(app, follow_redirects=False)
 
 
+def test_cors_allows_dashboard_origin(client: TestClient) -> None:
+    response = client.options(
+        "/restaurants/1/stripe/connect/account",
+        headers={
+            "Origin": "https://dashboard.yumco.fr",
+            "Access-Control-Request-Method": "POST",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.headers["access-control-allow-origin"] == "https://dashboard.yumco.fr"
+    assert response.headers["access-control-allow-credentials"] == "true"
+
+
 @pytest.mark.parametrize(
     "route",
     collect_routes(),
