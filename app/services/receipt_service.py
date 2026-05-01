@@ -1,6 +1,5 @@
 from io import BytesIO
 from datetime import datetime, timezone
-from reportlab.lib.pagesizes import A6
 from reportlab.lib.units import mm
 from reportlab.pdfgen import canvas
 from reportlab.lib import colors
@@ -157,21 +156,25 @@ def generate_receipt(order, restaurant) -> BytesIO:
 
 def generate_table_ticket(table, restaurant) -> BytesIO:
     buffer = BytesIO()
-    width, height = A6
+    width = 80 * mm  # largeur ticket thermique 80mm
+    estimated_height = 110 * mm
+    if table.location:
+        estimated_height += 10 * mm
+    height = estimated_height
 
-    c = canvas.Canvas(buffer, pagesize=A6)
-    y = height - 15 * mm
+    c = canvas.Canvas(buffer, pagesize=(width, height))
+    y = height - 10 * mm
 
     # Nom du restaurant
-    c.setFont("Helvetica", 9)
+    c.setFont("Helvetica", 10)
     c.drawCentredString(width / 2, y, restaurant.name)
     y -= 10 * mm
 
     # Numéro de table en très grand
-    y -= 15 * mm
-    c.setFont("Helvetica-Bold", 72)
+    y -= 8 * mm
+    c.setFont("Helvetica-Bold", 48)
     c.drawCentredString(width / 2, y, str(table.table_number))
-    y -= 28 * mm
+    y -= 18 * mm
 
     # Emplacement si défini
     if table.location:
@@ -183,7 +186,7 @@ def generate_table_ticket(table, restaurant) -> BytesIO:
     now = datetime.now(timezone.utc).strftime("%d/%m/%Y à %H:%M")
     c.setFont("Helvetica", 8)
     c.drawCentredString(width / 2, y, f"Occupée le {now}")
-    y -= 15 * mm
+    y -= 12 * mm
 
     # Pied de page
     c.setFont("Helvetica", 7)
