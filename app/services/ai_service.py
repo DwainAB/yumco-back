@@ -1,5 +1,6 @@
 import json
 from datetime import datetime
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import httpx
 from fastapi import HTTPException, status
@@ -40,6 +41,65 @@ SOUTHERN_HEMISPHERE_COUNTRIES = {
     "brazil",
 }
 
+FRENCH_COASTAL_DEPARTMENTS = {
+    "06": "mediterranean",
+    "11": "mediterranean",
+    "13": "mediterranean",
+    "17": "atlantic",
+    "22": "channel_atlantic",
+    "29": "atlantic",
+    "2A": "mediterranean",
+    "2B": "mediterranean",
+    "30": "mediterranean",
+    "33": "atlantic",
+    "34": "mediterranean",
+    "35": "channel_atlantic",
+    "40": "atlantic",
+    "44": "atlantic",
+    "50": "channel",
+    "56": "atlantic",
+    "59": "channel",
+    "62": "channel",
+    "64": "atlantic",
+    "66": "mediterranean",
+    "76": "channel",
+    "80": "channel",
+    "83": "mediterranean",
+    "85": "atlantic",
+}
+
+FRENCH_MOUNTAIN_DEPARTMENTS = {
+    "01", "04", "05", "06", "09", "15", "25", "26", "31", "38", "39", "42", "43",
+    "48", "63", "64", "65", "66", "67", "68", "73", "74", "88", "90",
+}
+
+STYLE_KEYWORDS = {
+    "asiatique": {
+        "nouille", "nouilles", "nems", "riz", "wok", "sushi", "maki", "ramen", "pho", "crevette", "saumon",
+        "tempura", "gyoza", "bo bun", "bo-bun", "thaï", "thai", "curry", "yakitori", "bao", "dim sum",
+    },
+    "italien": {
+        "pizza", "pasta", "pates", "pâtes", "risotto", "gnocchi", "lasagne", "carbo", "carbonara", "mozza",
+        "parmesan", "tiramisu", "focaccia",
+    },
+    "burger": {
+        "burger", "cheeseburger", "bacon", "fries", "frites", "smash", "tenders", "nuggets",
+    },
+    "grill": {
+        "grill", "entrecote", "entrecôte", "brochette", "cote", "côte", "barbecue", "bbq", "steak", "poulet roti",
+    },
+    "boulangerie_patisserie": {
+        "croissant", "pain", "baguette", "viennoiserie", "tarte", "eclair", "éclair", "patisserie", "pâtisserie",
+        "flan", "millefeuille",
+    },
+    "cafe_brunch": {
+        "brunch", "cafe", "café", "latte", "cappuccino", "avocado", "toast", "pancake", "granola", "oeufs", "œufs",
+    },
+    "mediterraneen": {
+        "mezze", "houmous", "hummus", "falafel", "shawarma", "kebab", "taboule", "taboulé", "grillade", "couscous",
+    },
+}
+
 
 def _season_hint(country: str | None, now: datetime) -> str | None:
     if not country:
@@ -68,6 +128,116 @@ def _serialize_history(history: list[AIChatMessage]) -> list[dict[str, str]]:
     return serialized
 
 
+def _get_local_now(timezone_name: str | None) -> datetime:
+    if timezone_name:
+        try:
+            return datetime.now(ZoneInfo(timezone_name))
+        except ZoneInfoNotFoundError:
+            pass
+    return datetime.now()
+
+
+def _normalize_text_for_matching(value: str) -> str:
+    return value.strip().lower()
+
+
+def _infer_style_profile(category_names: list[str], product_names: list[str]) -> dict:
+    corpus = " ".join(category_names + product_names).lower()
+    matches: list[dict[str, int | str]] = []
+    for style, keywords in STYLE_KEYWORDS.items():
+        score = sum(1 for keyword in keywords if keyword in corpus)
+        if score > 0:
+            matches.append({"style": style, "score": score})
+
+    matches.sort(key=lambda item: int(item["score"]), reverse=True)
+    primary_style = str(matches[0]["style"]) if matches else "generaliste"
+    return {
+        "primary_style": primary_style,
+        "matched_styles": matches[:3],
+    }
+
+
+def _normalize_country(country: str | None) -> str | None:
+    return country.strip().lower() if country else None
+
+
+def _extract_department_code(postal_code: str | None, country: str | None) -> str | None:
+    if not postal_code:
+        return None
+
+    normalized_country = _normalize_country(country)
+    compact = postal_code.replace(" ", "").upper()
+    if normalized_country not in {"fr", "france"}:
+        return compact[:3] if len(compact) >= 3 else compact
+
+    if compact.startswith(("2A", "2B")):
+        return compact[:2]
+    if len(compact) >= 2:
+        return compact[:2]
+    return compact
+
+
+def _infer_geographic_profile(address: object | None) -> dict:
+    if not address:
+        return {
+            "country_normalized": None,
+            "department_code": None,
+            "is_coastal_likely": False,
+            "coast_type": None,
+            "is_mountain_area_likely": False,
+            "location_profile": "unknown",
+            "local_product_biases": [],
+        }
+
+    country = str(getattr(address, "country", "") or "").strip()
+    city = str(getattr(address, "city", "") or "").strip()
+    postal_code = str(getattr(address, "postal_code", "") or "").strip()
+    normalized_country = _normalize_country(country)
+    department_code = _extract_department_code(postal_code, country)
+
+    is_coastal_likely = False
+    coast_type = None
+    is_mountain_area_likely = False
+    local_product_biases: list[str] = []
+
+    if normalized_country in {"fr", "france"} and department_code:
+        coast_type = FRENCH_COASTAL_DEPARTMENTS.get(department_code)
+        is_coastal_likely = coast_type is not None
+        is_mountain_area_likely = department_code in FRENCH_MOUNTAIN_DEPARTMENTS
+
+    if is_coastal_likely:
+        location_profile = "coastal"
+        local_product_biases.extend(
+            [
+                "seafood can be more credible if it already fits the menu style",
+                "fresh fish suggestions are more plausible when aligned with the existing offer",
+            ]
+        )
+    elif is_mountain_area_likely:
+        location_profile = "mountain"
+        local_product_biases.extend(
+            [
+                "comfort food and seasonal hearty dishes can be more credible if they fit the menu",
+                "regional sourcing logic may lean toward local meats, cheeses or mountain produce",
+            ]
+        )
+    else:
+        location_profile = "inland"
+
+    if city:
+        local_product_biases.append(f"city context: {city}")
+
+    return {
+        "country_normalized": normalized_country,
+        "department_code": department_code,
+        "is_coastal_likely": is_coastal_likely,
+        "coast_type": coast_type,
+        "is_mountain_area_likely": is_mountain_area_likely,
+        "location_profile": location_profile,
+        "local_product_biases": local_product_biases,
+    }
+
+
 def _build_catalog_context(db: Session, restaurant_id: int) -> dict:
     rows = (
         db.query(
@@ -75,6 +245,7 @@ def _build_catalog_context(db: Session, restaurant_id: int) -> dict:
             Category.kind.label("category_kind"),
             Product.name.label("product_name"),
             Product.price.label("product_price"),
+            Product.description.label("product_description"),
         )
         .join(Product, Product.category_id == Category.id)
         .filter(
@@ -88,7 +259,12 @@ def _build_catalog_context(db: Session, restaurant_id: int) -> dict:
     )
 
     grouped: dict[str, dict] = {}
+    all_product_names: list[str] = []
+    all_category_names: list[str] = []
     for row in rows:
+        all_product_names.append(row.product_name)
+        if row.category_name not in all_category_names:
+            all_category_names.append(row.category_name)
         bucket = grouped.setdefault(
             row.category_name,
             {
@@ -96,12 +272,11 @@ def _build_catalog_context(db: Session, restaurant_id: int) -> dict:
                 "products": [],
             },
         )
-        if len(bucket["products"]) >= 8:
-            continue
         bucket["products"].append(
             {
                 "name": row.product_name,
                 "price": float(row.product_price),
+                "description": row.product_description,
             }
         )
 
@@ -112,28 +287,38 @@ def _build_catalog_context(db: Session, restaurant_id: int) -> dict:
                 "category_name": category_name,
                 "kind": data["kind"],
                 "products": data["products"],
+                "product_count": len(data["products"]),
             }
         )
-        if len(catalog) >= 12:
-            break
-    return {"categories": catalog}
+    return {
+        "categories": catalog,
+        "category_count": len(catalog),
+        "product_count": len(all_product_names),
+        "all_category_names": all_category_names,
+        "all_product_names": all_product_names,
+        "style_profile": _infer_style_profile(all_category_names, all_product_names),
+    }
 
 
 def _build_restaurant_context(db: Session, restaurant: Restaurant) -> dict:
-    now = datetime.now()
+    now = _get_local_now(restaurant.timezone)
     address = restaurant.address
+    catalog = _build_catalog_context(db, restaurant.id)
+    geography = _infer_geographic_profile(address)
     return {
         "restaurant": {
             "id": restaurant.id,
             "name": restaurant.name,
             "timezone": restaurant.timezone,
+            "street": address.street if address else None,
             "city": address.city if address else None,
             "country": address.country if address else None,
             "postal_code": address.postal_code if address else None,
             "season_hint": _season_hint(address.country if address else None, now),
             "current_month": now.strftime("%B"),
+            "geography": geography,
         },
-        "catalog": _build_catalog_context(db, restaurant.id),
+        "catalog": catalog,
         "analytics": {
             "revenue": get_revenue_analytics(db, restaurant.id),
             "orders": get_order_analytics(db, restaurant.id),
@@ -145,12 +330,31 @@ def _build_restaurant_context(db: Session, restaurant: Restaurant) -> dict:
 
 def _build_system_prompt() -> str:
     return (
-        "Tu es l'assistant strategique d'un restaurateur.\n"
+        "Tu es le bras droit du restaurateur et tu parles comme un membre interne de l'equipe.\n"
+        "Tu utilises 'nous', 'notre', 'nos' et jamais 'vous' pour parler du restaurant.\n"
         "Tu reponds uniquement dans le cadre du restaurant fourni.\n"
-        "Tu t'appuies en priorite sur les analytics, le catalogue et le contexte du restaurant.\n"
+        "Tu t'appuies en priorite sur tout le catalogue, toutes les analytics et le contexte du restaurant.\n"
+        "Tu dois tenir compte du style culinaire observe dans la carte actuelle, des categories existantes, des produits deja vendus, "
+        "de la saison en cours et de la localisation.\n"
+        "La localisation inclut la ville, le code postal, le pays et les signaux geographiques fournis. "
+        "Utilise-les pour raisonner sur les produits plausibles localement, par exemple une logique bord de mer, montagne ou interieur, "
+        "mais seulement si cela reste coherent avec notre carte actuelle.\n"
+        "Si nous proposons un nouveau produit, il doit rester coherent avec l'identite de la carte. "
+        "Ne suggere jamais un plat hors univers du restaurant.\n"
+        "Ne suggere pas un produit saisonnier incoherent avec la saison actuelle ni un produit qui contredit clairement "
+        "les habitudes de la carte existante.\n"
+        "Le contexte geographique peut renforcer une recommandation, mais il ne doit jamais suffire a lui seul a justifier un produit "
+        "qui ne correspond pas deja a notre style culinaire.\n"
         "Tu peux proposer des idees de produits, de carte, de saisonnalite ou de localisation, "
         "mais tu dois les presenter comme des recommandations business et non comme des faits certains "
         "si les donnees ne prouvent pas directement le point.\n"
+        "Quand nous recommandons une nouveaute, explique brievement pourquoi elle colle a notre carte et a nos ventes.\n"
+        "Si la question porte sur un nouveau plat ou une extension de carte, appuie-toi explicitement sur les categories, produits "
+        "et tendances deja visibles dans nos donnees.\n"
+        "Si des fournisseurs peuvent aider, propose seulement des pistes credibles et prudentes: types de fournisseurs, "
+        "grossistes specialises ou importateurs a valider localement. N'invente jamais de partenariat confirme ni d'information fournisseur non verifiee.\n"
+        "Ne donne jamais de nom, d'adresse ou de coordonnees precises de fournisseur si ces informations ne sont pas presentes dans le contexte fourni. "
+        "Si nous voulons des fournisseurs nommes et localises, dis clairement qu'une recherche web ou annuaire verifie est necessaire.\n"
         "Si une question depasse les donnees disponibles, dis-le clairement puis propose des hypotheses utiles.\n"
         "N'invente jamais de chiffres.\n"
         "Reponds dans la langue du client, avec un ton professionnel, concret, fluide et naturel.\n"
@@ -158,6 +362,9 @@ def _build_system_prompt() -> str:
         "N'utilise pas de titres automatiques comme 'Reponse courte', 'Pourquoi' ou 'Action conseillee' sauf si c'est vraiment utile.\n"
         "N'utilise pas de markdown decoratif.\n"
         "N'utilise pas de texte en gras, donc pas de **...**.\n"
+        "N'ecris pas 'je vous conseille', 'je vous recommande' ou 'vous devriez'. "
+        "Prefere des formulations comme 'nous pouvons', 'nous avons interet a', 'notre meilleure piste est'.\n"
+        "Fais des paragraphes compacts dans un texte continu, sans sauts de ligne inutiles.\n"
         "Ecris comme dans une vraie conversation avec un restaurateur.\n"
     )
 
@@ -185,6 +392,10 @@ def _extract_output_text(response_json: dict) -> str:
             if isinstance(text_value, str) and text_value.strip():
                 texts.append(text_value.strip())
     return "\n".join(texts).strip()
+
+
+def _normalize_answer_text(answer: str) -> str:
+    return " ".join(answer.split())
 
 
 def _extract_usage(response_json: dict) -> tuple[int, int, int]:
@@ -276,7 +487,7 @@ async def generate_restaurant_ai_response(
         )
 
     response_json = response.json()
-    answer = _extract_output_text(response_json)
+    answer = _normalize_answer_text(_extract_output_text(response_json))
     if not answer:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
