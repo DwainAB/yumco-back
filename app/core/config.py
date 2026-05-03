@@ -17,6 +17,7 @@ class Settings(BaseSettings):
     CLOUDINARY_API_SECRET: str
     OPENAI_API_KEY: str | None = None
     OPENAI_MODEL: str = "gpt-5.4-mini"
+    OPENAI_WEB_SEARCH_MODEL: str = "gpt-4.1-mini"
     APP_BASE_URL: str | None = None
     FRONTEND_BASE_URL: str | None = None
     CORS_ALLOWED_ORIGINS: list[str] = [

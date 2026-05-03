@@ -672,8 +672,10 @@ async def generate_restaurant_ai_response(
         reserved_output_tokens=MAX_OUTPUT_TOKENS_PER_REQUEST,
     )
 
+    model_name = settings.OPENAI_WEB_SEARCH_MODEL if should_use_web_search and cached_web_context is None else settings.OPENAI_MODEL
+
     body = {
-        "model": settings.OPENAI_MODEL,
+        "model": model_name,
         "input": [
             {
                 "role": "system",
@@ -757,7 +759,7 @@ async def generate_restaurant_ai_response(
     return AIChatResponse(
         conversation_id=conversation.id if conversation is not None else 0,
         answer=answer,
-        model=settings.OPENAI_MODEL,
+        model=model_name,
         usage=AIUsageInfo(
             input_tokens=input_tokens,
             output_tokens=output_tokens,
