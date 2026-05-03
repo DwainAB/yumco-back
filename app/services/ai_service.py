@@ -123,9 +123,6 @@ WEB_SEARCH_TRIGGER_PATTERNS = (
 )
 
 WEB_SEARCH_CACHE_TTL_SECONDS = 6 * 60 * 60
-WEB_SEARCH_CONTEXT_LOOKBACK_MESSAGES = 12
-WEB_SEARCH_MIN_TOPIC_OVERLAP = 0.55
-
 SEARCH_TOPIC_STOPWORDS = {
     "a", "au", "aux", "avec", "ce", "ces", "coherent", "coherente", "cohérent", "cohérente",
     "comment", "dans", "de", "des", "du", "en", "est", "et", "faut", "il", "la", "le", "les",
@@ -395,31 +392,6 @@ def _set_cached_web_context(restaurant_id: int, message: str, answer: str) -> No
     }
 
 
-def _find_recent_web_context(conversation: object, message: str) -> str | None:
-    topic_tokens = _extract_topic_tokens(message)
-    if not topic_tokens or not getattr(conversation, "messages", None):
-        return None
-
-    recent_messages = list(conversation.messages[-WEB_SEARCH_CONTEXT_LOOKBACK_MESSAGES:])
-    for index in range(len(recent_messages) - 2, -1, -1):
-        candidate_user = recent_messages[index]
-        if getattr(candidate_user, "role", None) != "user":
-            continue
-        candidate_content = str(getattr(candidate_user, "content", "") or "").strip()
-        if not _should_use_web_search(candidate_content):
-            continue
-
-        overlap_score = _topic_overlap_score(topic_tokens, _extract_topic_tokens(candidate_content))
-        if overlap_score < WEB_SEARCH_MIN_TOPIC_OVERLAP:
-            continue
-
-        for following_index in range(index + 1, len(recent_messages)):
-            candidate_assistant = recent_messages[following_index]
-            if getattr(candidate_assistant, "role", None) == "assistant":
-                return str(getattr(candidate_assistant, "content", "") or "").strip() or None
-    return None
-
-
 def _should_use_web_search(message: str) -> bool:
     normalized_message = message.strip().lower()
     if not normalized_message:
@@ -643,6 +615,13 @@ def _extract_usage(response_json: dict) -> tuple[int, int, int]:
     return input_tokens, output_tokens, total_tokens
 
 
+def _response_used_web_search(response_json: dict) -> bool:
+    for item in response_json.get("output", []):
+        if item.get("type") == "web_search_call":
+            return True
+    return False
+
+
 async def generate_restaurant_ai_response(
     db: Session,
     restaurant: Restaurant,
@@ -670,9 +649,8 @@ async def generate_restaurant_ai_response(
 
     system_prompt = _build_system_prompt()
     should_use_web_search = _should_use_web_search(payload.message)
-    reused_web_context = _find_recent_web_context(conversation, payload.message) if should_use_web_search else None
     cached_web_context = None
-    if should_use_web_search and reused_web_context is None:
+    if should_use_web_search:
         cached_web_context = _get_cached_web_context(restaurant.id, payload.message)
 
     prepared_payload = AIChatRequest(
@@ -683,7 +661,6 @@ async def generate_restaurant_ai_response(
     user_input = _build_user_input(
         prepared_payload,
         context,
-        reused_web_context=reused_web_context,
         cached_web_context=cached_web_context,
     )
     estimated_input_tokens = estimate_text_tokens(system_prompt) + estimate_text_tokens(user_input)
@@ -709,9 +686,9 @@ async def generate_restaurant_ai_response(
         ],
         "max_output_tokens": MAX_OUTPUT_TOKENS_PER_REQUEST,
     }
-    if should_use_web_search and reused_web_context is None and cached_web_context is None:
+    if should_use_web_search and cached_web_context is None:
         body["tools"] = [_build_web_search_tool(restaurant)]
-        body["tool_choice"] = "auto"
+        body["tool_choice"] = "required"
 
     async with httpx.AsyncClient(timeout=HTTP_TIMEOUT_SECONDS) as client:
         response = await client.post(
@@ -736,13 +713,14 @@ async def generate_restaurant_ai_response(
         )
 
     response_json = response.json()
+    used_web_search = _response_used_web_search(response_json)
     answer = _normalize_answer_text(_extract_output_text(response_json))
     if not answer:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="OpenAI returned an empty answer",
         )
-    if should_use_web_search:
+    if should_use_web_search and used_web_search:
         _set_cached_web_context(restaurant.id, payload.message, answer)
 
     input_tokens, output_tokens, total_tokens = _extract_usage(response_json)
