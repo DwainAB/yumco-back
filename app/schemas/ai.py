@@ -25,3 +25,21 @@ class AIChatResponse(BaseModel):
     answer: str
     model: str
     usage: AIUsageInfo
+
+
+class AIWebSearchDebugInfo(BaseModel):
+    forced_web_search: bool
+    should_use_web_search: bool
+    used_cached_web_context: bool
+    selected_model: str
+    tool_choice: str | None = None
+    web_search_tool_attached: bool
+    used_web_search_tool: bool
+
+
+class AIWebSearchDebugResponse(BaseModel):
+    conversation_id: int | None = None
+    answer: str
+    model: str
+    usage: AIUsageInfo
+    debug: AIWebSearchDebugInfo

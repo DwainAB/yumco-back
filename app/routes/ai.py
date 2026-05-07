@@ -6,7 +6,7 @@ from app.db.database import get_db
 from app.models.restaurant import Restaurant
 from app.models.role import Role
 from app.models.user import User
-from app.schemas.ai import AIChatRequest, AIChatResponse
+from app.schemas.ai import AIChatRequest, AIChatResponse, AIWebSearchDebugResponse
 from app.schemas.ai_conversation import (
     AI_CONVERSATIONS_PAGE_SIZE,
     AIConversationCreate,
@@ -15,7 +15,10 @@ from app.schemas.ai_conversation import (
     AIConversationSummary,
 )
 from app.services.ai_conversation_service import create_ai_conversation, get_ai_conversation, list_ai_conversations
-from app.services.ai_service import generate_restaurant_ai_response
+from app.services.ai_service import (
+    debug_restaurant_ai_web_search as generate_restaurant_ai_response_debug,
+    generate_restaurant_ai_response,
+)
 
 
 router = APIRouter(prefix="/restaurants", tags=["ai"])
@@ -44,6 +47,38 @@ async def chat_with_restaurant_ai(
 ):
     restaurant = _require_restaurant_owner_or_admin(restaurant_id, current_user, db)
     return await generate_restaurant_ai_response(db, restaurant, data)
+
+
+@router.post("/{restaurant_id}/ai/debug/web-search", response_model=AIWebSearchDebugResponse)
+async def debug_restaurant_ai_web_search_route(
+    restaurant_id: int,
+    data: AIChatRequest,
+    db: Session = Depends(get_db),
+):
+    restaurant = db.query(Restaurant).filter(Restaurant.id == restaurant_id, Restaurant.is_deleted.is_(False)).first()
+    if not restaurant:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Restaurant not found")
+    result = await generate_restaurant_ai_response_debug(db, restaurant, data)
+    if isinstance(result, tuple) and len(result) == 2:
+        response, debug = result
+    else:
+        response = result
+        debug = {
+            "forced_web_search": True,
+            "should_use_web_search": True,
+            "used_cached_web_context": False,
+            "selected_model": getattr(response, "model", None) or (response.get("model") if isinstance(response, dict) else None) or "unknown",
+            "tool_choice": "required",
+            "web_search_tool_attached": True,
+            "used_web_search_tool": False,
+        }
+    return AIWebSearchDebugResponse(
+        conversation_id=data.conversation_id,
+        answer=response.answer if hasattr(response, "answer") else response["answer"],
+        model=response.model if hasattr(response, "model") else response["model"],
+        usage=response.usage if hasattr(response, "usage") else response["usage"],
+        debug=debug,
+    )
 
 
 @router.post("/{restaurant_id}/ai/conversations", response_model=AIConversationSummary, status_code=status.HTTP_201_CREATED)

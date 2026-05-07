@@ -12,7 +12,7 @@ from app.core.config import settings
 from app.models.category import Category
 from app.models.product import Product
 from app.models.restaurant import Restaurant
-from app.schemas.ai import AIChatMessage, AIChatRequest, AIChatResponse, AIUsageInfo
+from app.schemas.ai import AIChatMessage, AIChatRequest, AIChatResponse, AIUsageInfo, AIWebSearchDebugInfo
 from app.services.ai_conversation_service import add_ai_conversation_message, get_ai_conversation
 from app.services.customer_analytics_service import get_customer_analytics
 from app.services.order_analytics_service import get_order_analytics
@@ -133,6 +133,14 @@ SEARCH_TOPIC_STOPWORDS = {
 }
 
 WEB_SEARCH_RESPONSE_CACHE: dict[str, dict] = {}
+
+INVALID_WEB_CACHE_PATTERNS = (
+    "nous n’avons pas de recherche web locale active",
+    "nous n'avons pas de recherche web locale active",
+    "sans recherche web locale",
+    "il nous faut une recherche web locale",
+    "je ne peux pas sortir des noms",
+)
 
 
 def _season_hint(country: str | None, now: datetime) -> str | None:
@@ -381,10 +389,20 @@ def _get_cached_web_context(restaurant_id: int, message: str) -> str | None:
         WEB_SEARCH_RESPONSE_CACHE.pop(key, None)
         return None
 
-    return str(cached_entry["answer"])
+    answer = str(cached_entry["answer"])
+    normalized_answer = answer.strip().lower()
+    if any(pattern in normalized_answer for pattern in INVALID_WEB_CACHE_PATTERNS):
+        WEB_SEARCH_RESPONSE_CACHE.pop(key, None)
+        return None
+
+    return answer
 
 
 def _set_cached_web_context(restaurant_id: int, message: str, answer: str) -> None:
+    normalized_answer = answer.strip().lower()
+    if any(pattern in normalized_answer for pattern in INVALID_WEB_CACHE_PATTERNS):
+        return
+
     key = _build_search_cache_key(restaurant_id, message)
     WEB_SEARCH_RESPONSE_CACHE[key] = {
         "answer": answer,
@@ -542,6 +560,7 @@ def _build_system_prompt() -> str:
         "Ne liste pas 4 ou 5 idees. Ne pars pas dans plusieurs directions a la fois.\n"
         "Pour une demande de modification de carte, d'ajout produit, de dessert ou boisson a lancer, de fournisseurs ou de concurrence locale, "
         "utilise la recherche web si elle est disponible afin de completer nos donnees internes avec de l'information actuelle.\n"
+        "Pour une demande de concurrents, de fournisseurs ou d'acteurs locaux, cite au maximum 2 resultats pour commencer.\n"
         "Si des fournisseurs peuvent aider, propose seulement des pistes credibles et prudentes: types de fournisseurs, "
         "grossistes specialises ou importateurs a valider localement. N'invente jamais de partenariat confirme ni d'information fournisseur non verifiee.\n"
         "Ne donne jamais de nom, d'adresse ou de coordonnees precises de fournisseur si ces informations ne sont pas presentes dans le contexte fourni. "
@@ -556,6 +575,7 @@ def _build_system_prompt() -> str:
         "N'utilise pas de markdown decoratif.\n"
         "N'utilise pas de listes a puces sauf si la question demande explicitement une liste.\n"
         "N'utilise pas de texte en gras, donc pas de **...**.\n"
+        "Ne mets jamais d'URL, de lien source ou de site web dans la reponse sauf si on te les demande explicitement.\n"
         "N'ecris pas 'je vous conseille', 'je vous recommande' ou 'vous devriez'. "
         "Prefere des formulations comme 'nous pouvons', 'nous avons interet a', 'notre meilleure piste est'.\n"
         "Fais des paragraphes compacts dans un texte continu, sans sauts de ligne inutiles.\n"
@@ -602,7 +622,13 @@ def _extract_output_text(response_json: dict) -> str:
 
 
 def _normalize_answer_text(answer: str) -> str:
-    return " ".join(answer.split())
+    normalized = answer.replace("**", "")
+    normalized = re.sub(r"\[([^\]]+)\]\((https?://[^)]+)\)", r"\1", normalized)
+    normalized = re.sub(r"https?://\S+", "", normalized)
+    normalized = re.sub(r"\(\s*[A-Za-z0-9.-]+\.[A-Za-z]{2,}(?:\s*[^)]*)?\)", "", normalized)
+    normalized = re.sub(r"\(\s*\)", "", normalized)
+    normalized = re.sub(r"\s+", " ", normalized)
+    return normalized.strip()
 
 
 def _extract_usage(response_json: dict) -> tuple[int, int, int]:
@@ -622,35 +648,36 @@ def _response_used_web_search(response_json: dict) -> bool:
     return False
 
 
-async def generate_restaurant_ai_response(
+async def _generate_restaurant_ai_response(
     db: Session,
     restaurant: Restaurant,
     payload: AIChatRequest,
-) -> AIChatResponse:
+    *,
+    force_web_search: bool = False,
+    persist_conversation: bool = True,
+    consume_quota: bool = True,
+) -> tuple[AIChatResponse, AIWebSearchDebugInfo]:
     if not settings.OPENAI_API_KEY:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="OPENAI_API_KEY is not configured",
         )
 
-    if payload.conversation_id is None:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="conversation_id is required",
-        )
-
     context = _build_restaurant_context(db, restaurant)
-    conversation = get_ai_conversation(db, restaurant.id, payload.conversation_id)
-    history = [
-        AIChatMessage(role=message.role, content=message.content)
-        for message in conversation.messages[-8:]
-        if message.role in {"user", "assistant"}
-    ]
+    conversation = None
+    history: list[AIChatMessage] = []
+    if payload.conversation_id is not None:
+        conversation = get_ai_conversation(db, restaurant.id, payload.conversation_id)
+        history = [
+            AIChatMessage(role=message.role, content=message.content)
+            for message in conversation.messages[-8:]
+            if message.role in {"user", "assistant"}
+        ]
 
     system_prompt = _build_system_prompt()
-    should_use_web_search = _should_use_web_search(payload.message)
+    should_use_web_search = force_web_search or _should_use_web_search(payload.message)
     cached_web_context = None
-    if should_use_web_search:
+    if should_use_web_search and not force_web_search:
         cached_web_context = _get_cached_web_context(restaurant.id, payload.message)
 
     prepared_payload = AIChatRequest(
@@ -665,14 +692,16 @@ async def generate_restaurant_ai_response(
     )
     estimated_input_tokens = estimate_text_tokens(system_prompt) + estimate_text_tokens(user_input)
 
-    ensure_ai_request_within_limits(
-        db,
-        restaurant,
-        input_tokens=estimated_input_tokens,
-        reserved_output_tokens=MAX_OUTPUT_TOKENS_PER_REQUEST,
-    )
+    if payload.conversation_id is not None and consume_quota:
+        ensure_ai_request_within_limits(
+            db,
+            restaurant,
+            input_tokens=estimated_input_tokens,
+            reserved_output_tokens=MAX_OUTPUT_TOKENS_PER_REQUEST,
+        )
 
     model_name = settings.OPENAI_WEB_SEARCH_MODEL if should_use_web_search and cached_web_context is None else settings.OPENAI_MODEL
+    tool_choice: str | None = None
 
     body = {
         "model": model_name,
@@ -691,6 +720,7 @@ async def generate_restaurant_ai_response(
     if should_use_web_search and cached_web_context is None:
         body["tools"] = [_build_web_search_tool(restaurant)]
         body["tool_choice"] = "required"
+        tool_choice = "required"
 
     async with httpx.AsyncClient(timeout=HTTP_TIMEOUT_SECONDS) as client:
         response = await client.post(
@@ -731,7 +761,7 @@ async def generate_restaurant_ai_response(
         input_tokens = estimated_input_tokens
         output_tokens = MAX_OUTPUT_TOKENS_PER_REQUEST
 
-    if conversation is not None:
+    if conversation is not None and persist_conversation:
         add_ai_conversation_message(
             db,
             conversation,
@@ -748,15 +778,17 @@ async def generate_restaurant_ai_response(
             total_tokens=total_tokens,
         )
 
-    updated_restaurant = consume_ai_quota(
-        db,
-        restaurant,
-        message_amount=1,
-        token_amount=total_tokens,
-    )
-    usage = get_subscription_usage(db, updated_restaurant)
+    usage_restaurant = restaurant
+    if payload.conversation_id is not None and consume_quota:
+        usage_restaurant = consume_ai_quota(
+            db,
+            restaurant,
+            message_amount=1,
+            token_amount=total_tokens,
+        )
+    usage = get_subscription_usage(db, usage_restaurant)
 
-    return AIChatResponse(
+    response = AIChatResponse(
         conversation_id=conversation.id if conversation is not None else 0,
         answer=answer,
         model=model_name,
@@ -767,4 +799,48 @@ async def generate_restaurant_ai_response(
             remaining_messages=usage["usage_remaining"],
             remaining_tokens=usage["token_usage_remaining"],
         ),
+    )
+    debug = AIWebSearchDebugInfo(
+        forced_web_search=force_web_search,
+        should_use_web_search=should_use_web_search,
+        used_cached_web_context=cached_web_context is not None,
+        selected_model=model_name,
+        tool_choice=tool_choice,
+        web_search_tool_attached="tools" in body,
+        used_web_search_tool=used_web_search,
+    )
+    return response, debug
+
+
+async def generate_restaurant_ai_response(
+    db: Session,
+    restaurant: Restaurant,
+    payload: AIChatRequest,
+) -> AIChatResponse:
+    if payload.conversation_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="conversation_id is required",
+        )
+    response, _ = await _generate_restaurant_ai_response(db, restaurant, payload)
+    return response
+
+
+async def debug_restaurant_ai_web_search(
+    db: Session,
+    restaurant: Restaurant,
+    payload: AIChatRequest,
+) -> tuple[AIChatResponse, AIWebSearchDebugInfo]:
+    debug_payload = AIChatRequest(
+        conversation_id=payload.conversation_id,
+        message=payload.message,
+        history=payload.history,
+    )
+    return await _generate_restaurant_ai_response(
+        db,
+        restaurant,
+        debug_payload,
+        force_web_search=True,
+        persist_conversation=False,
+        consume_quota=False,
     )
