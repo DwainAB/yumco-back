@@ -96,6 +96,12 @@ def update_restaurant(db: Session, restaurant: Restaurant, data: RestaurantUpdat
         if config:
             for field, value in data.config.model_dump(exclude_unset=True).items():
                 setattr(config, field, value)
+        else:
+            config = RestaurantConfig(
+                restaurant_id=restaurant.id,
+                **data.config.model_dump(exclude_unset=True),
+            )
+            db.add(config)
 
     if data.delivery_tiers is not None:
         db.query(DeliveryTier).filter(DeliveryTier.restaurant_id == restaurant.id).delete()

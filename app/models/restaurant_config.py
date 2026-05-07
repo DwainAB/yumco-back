@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, Boolean, ForeignKey
+from sqlalchemy import Column, Integer, Boolean, ForeignKey, String
 from app.db.database import Base
 
 class RestaurantConfig(Base):
@@ -30,3 +30,10 @@ class RestaurantConfig(Base):
 
     # Delivery zone
     max_delivery_km = Column(Integer, nullable=True)
+
+    # Shared receipt printer
+    printer_enabled = Column(Boolean, nullable=False, default=False)
+    printer_name = Column(String, nullable=True)
+    printer_host = Column(String, nullable=True)
+    printer_port = Column(Integer, nullable=True)
+    printer_paper_width = Column(Integer, nullable=True)
