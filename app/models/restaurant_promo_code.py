@@ -12,6 +12,9 @@ class RestaurantPromoCode(Base):
     code = Column(String, nullable=False, index=True)
     discount_type = Column(String, nullable=False)  # percent | fixed
     discount_value = Column(Numeric(10, 2), nullable=False)
+    minimum_order_amount = Column(Numeric(10, 2), nullable=True)
+    usage_limit = Column(Integer, nullable=True)
+    usage_count = Column(Integer, nullable=False, default=0)
     start_at = Column(DateTime(timezone=True), nullable=True)
     end_at = Column(DateTime(timezone=True), nullable=True)
     is_active = Column(Boolean, nullable=False, default=True)

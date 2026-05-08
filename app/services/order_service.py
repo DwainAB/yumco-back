@@ -17,7 +17,7 @@ from app.models.product import Product
 from app.models.restaurant import Restaurant
 from app.schemas.order import OrderCreate
 from app.services.geo_service import _haversine, geocode_address_sync
-from app.services.promo_code_service import validate_promo_code_for_order
+from app.services.promo_code_service import increment_promo_code_usage, validate_promo_code_for_order
 
 
 MONEY_QUANT = Decimal("0.01")
@@ -463,5 +463,8 @@ def create_order(db: Session, restaurant_id: int, data: OrderCreate) -> Order:
             db.add(child)
 
     db.commit()
+    if order.promo_code:
+        increment_promo_code_usage(db, restaurant_id, order.promo_code)
+        db.commit()
     db.refresh(order)
     return order

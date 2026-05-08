@@ -17,6 +17,7 @@ from app.schemas.promo_code import (
 )
 from app.services.order_service import calculate_order_pricing, compute_items_subtotal
 from app.services.promo_code_service import (
+    ensure_unique_promo_code,
     get_promo_code_by_id,
     list_promo_codes,
 )
@@ -54,6 +55,7 @@ def create_restaurant_promo_code(
     db: Session = Depends(get_db),
 ):
     _get_restaurant_or_404(db, restaurant_id)
+    ensure_unique_promo_code(db, restaurant_id, data.code)
     promo_code = RestaurantPromoCode(restaurant_id=restaurant_id, **data.model_dump())
     db.add(promo_code)
     db.commit()
@@ -74,7 +76,12 @@ def update_restaurant_promo_code(
     if not promo_code:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Code promo introuvable")
 
-    for field, value in data.model_dump(exclude_unset=True).items():
+    payload = data.model_dump(exclude_unset=True)
+    next_code = payload.get("code")
+    if next_code:
+        ensure_unique_promo_code(db, restaurant_id, next_code, exclude_promo_code_id=promo_code.id)
+
+    for field, value in payload.items():
         setattr(promo_code, field, value)
 
     db.commit()

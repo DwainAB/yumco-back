@@ -21,6 +21,8 @@ class PromoCodeBase(BaseModel):
     code: str
     discount_type: str
     discount_value: Decimal
+    minimum_order_amount: Decimal | None = None
+    usage_limit: int | None = None
     start_at: datetime | None = None
     end_at: datetime | None = None
     is_active: bool = True
@@ -45,6 +47,24 @@ class PromoCodeBase(BaseModel):
             raise ValueError("discount_value must be greater than 0")
         return value
 
+    @field_validator("minimum_order_amount")
+    @classmethod
+    def validate_minimum_order_amount(cls, value: Decimal | None) -> Decimal | None:
+        if value is None:
+            return value
+        if value < 0:
+            raise ValueError("minimum_order_amount must be greater than or equal to 0")
+        return value
+
+    @field_validator("usage_limit")
+    @classmethod
+    def validate_usage_limit(cls, value: int | None) -> int | None:
+        if value is None:
+            return value
+        if value <= 0:
+            raise ValueError("usage_limit must be greater than 0")
+        return value
+
     @field_validator("end_at")
     @classmethod
     def validate_dates(cls, value: datetime | None, info) -> datetime | None:
@@ -62,6 +82,8 @@ class PromoCodeUpdate(BaseModel):
     code: str | None = None
     discount_type: str | None = None
     discount_value: Decimal | None = None
+    minimum_order_amount: Decimal | None = None
+    usage_limit: int | None = None
     start_at: datetime | None = None
     end_at: datetime | None = None
     is_active: bool | None = None
@@ -92,10 +114,29 @@ class PromoCodeUpdate(BaseModel):
             raise ValueError("discount_value must be greater than 0")
         return value
 
+    @field_validator("minimum_order_amount")
+    @classmethod
+    def validate_minimum_order_amount(cls, value: Decimal | None) -> Decimal | None:
+        if value is None:
+            return value
+        if value < 0:
+            raise ValueError("minimum_order_amount must be greater than or equal to 0")
+        return value
+
+    @field_validator("usage_limit")
+    @classmethod
+    def validate_usage_limit(cls, value: int | None) -> int | None:
+        if value is None:
+            return value
+        if value <= 0:
+            raise ValueError("usage_limit must be greater than 0")
+        return value
+
 
 class PromoCodeResponse(PromoCodeBase):
     id: int
     restaurant_id: int
+    usage_count: int
     created_at: datetime
 
     class Config:
