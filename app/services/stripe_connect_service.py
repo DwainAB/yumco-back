@@ -10,7 +10,7 @@ from app.models.order import Order
 from app.models.pending_online_order import PendingOnlineOrder
 from app.models.restaurant import Restaurant
 from app.schemas.order import OrderCreate
-from app.services.order_service import create_order
+from app.services.order_service import calculate_order_pricing, compute_items_subtotal, create_order
 
 
 def _require_stripe_secret_key() -> str:
@@ -121,7 +121,7 @@ def create_draft_order_checkout_session(db: Session, restaurant: Restaurant, ord
                 "quantity": 1,
                 "price_data": {
                     "currency": "eur",
-                    "unit_amount": _amount_to_cents(_compute_order_total(db, order_data)),
+                    "unit_amount": _amount_to_cents(_compute_order_total(db, restaurant, order_data)),
                     "product_data": {
                         "name": f"Commande {restaurant.name}",
                         "description": f"Commande Yumco pour {restaurant.name}",
@@ -226,37 +226,20 @@ def sync_order_payment_from_charge(db: Session, charge_payload: stripe.Charge) -
     db.commit()
 
 
-def _compute_order_total(db: Session, data: OrderCreate) -> Decimal:
-    from app.models.all_you_can_eat import AllYouCanEat
-    from app.models.menu import Menu
-    from app.models.menu_option import MenuOption
-    from app.models.product import Product
+def _compute_order_total(db: Session, restaurant: Restaurant, data: OrderCreate) -> Decimal:
+    items_subtotal = compute_items_subtotal(db, data.items)
+    address = None
+    if data.type == "delivery" and data.address:
+        from app.models.address import Address
 
-    amount_total = Decimal("0")
+        address = Address(**data.address.model_dump())
 
-    for item in data.items:
-        if item.product_id:
-            product = db.query(Product).filter(Product.id == item.product_id).first()
-            if not product:
-                raise HTTPException(status_code=400, detail=f"Product {item.product_id} not found")
-            amount_total += Decimal(str(product.price)) * item.quantity
-        elif item.menu_id:
-            menu = db.query(Menu).filter(Menu.id == item.menu_id).first()
-            if not menu:
-                raise HTTPException(status_code=400, detail=f"Menu {item.menu_id} not found")
-            unit_price = Decimal(str(menu.price))
-            for option_id in item.selected_options:
-                option = db.query(MenuOption).filter(MenuOption.id == option_id).first()
-                if not option:
-                    raise HTTPException(status_code=400, detail=f"MenuOption {option_id} not found")
-                unit_price += Decimal(str(option.additional_price))
-            amount_total += unit_price * item.quantity
-        elif item.all_you_can_eat_id:
-            ayce = db.query(AllYouCanEat).filter(AllYouCanEat.id == item.all_you_can_eat_id).first()
-            if not ayce:
-                raise HTTPException(status_code=400, detail=f"AllYouCanEat offer {item.all_you_can_eat_id} not found")
-            amount_total += Decimal(str(ayce.price)) * item.quantity
-        else:
-            raise HTTPException(status_code=400, detail="Each item must have a product_id, menu_id, or all_you_can_eat_id")
-
-    return amount_total
+    pricing = calculate_order_pricing(
+        db=db,
+        restaurant=restaurant,
+        order_type=data.type,
+        items_subtotal=items_subtotal,
+        address_data=address,
+        promo_code=data.promo_code,
+    )
+    return pricing["amount_total"]

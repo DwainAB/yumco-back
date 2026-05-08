@@ -51,6 +51,7 @@ def _bootstrap_test_db():
     import app.models.ai_conversation_message  # noqa
     import app.models.user_device  # noqa
     import app.models.pending_online_order  # noqa
+    import app.models.restaurant_promo_code  # noqa
 
     from app.db.database import Base
 
@@ -72,6 +73,7 @@ TRUNCATE_ORDER = [
     "hubrise_connections",
     "order_items",
     "orders",
+    "restaurant_promo_codes",
     "delivery_tiers",
     "all_you_can_eat",
     "menu_options",

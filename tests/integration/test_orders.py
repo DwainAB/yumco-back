@@ -2,6 +2,7 @@
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
+from app.models.restaurant_promo_code import RestaurantPromoCode
 
 from tests.integration.conftest import (
     make_user, make_restaurant, make_category, make_product, auth_headers
@@ -119,3 +120,63 @@ def test_order_total_calculation(client: TestClient, db: Session, setup):
     assert res.status_code == 201
     data = res.json()
     assert float(data["items_subtotal"]) == pytest.approx(37.5)
+
+
+def test_validate_promo_code(client: TestClient, db: Session, setup):
+    r = setup["restaurant"]
+    p = setup["product"]
+    db.add(
+        RestaurantPromoCode(
+            restaurant_id=r.id,
+            code="YUM10",
+            discount_type="percent",
+            discount_value=10,
+            is_active=True,
+        )
+    )
+    db.commit()
+
+    res = client.post(f"/restaurants/{r.id}/promo-codes/validate", json={
+        "promo_code": "yum10",
+        "type": "pickup",
+        "items": [{"product_id": p.id, "quantity": 2}],
+    })
+    assert res.status_code == 200
+    data = res.json()
+    assert data["promo_code"] == "YUM10"
+    assert float(data["items_subtotal"]) == pytest.approx(25.0)
+    assert float(data["discount_amount"]) == pytest.approx(2.5)
+    assert float(data["amount_total"]) == pytest.approx(22.5)
+
+
+def test_create_pickup_order_with_promo_code(client: TestClient, db: Session, setup):
+    r = setup["restaurant"]
+    p = setup["product"]
+    db.add(
+        RestaurantPromoCode(
+            restaurant_id=r.id,
+            code="EURO5",
+            discount_type="fixed",
+            discount_value=5,
+            is_active=True,
+        )
+    )
+    db.commit()
+
+    res = client.post(f"/restaurants/{r.id}/orders", json={
+        "type": "pickup",
+        "promo_code": "EURO5",
+        "items": [{"product_id": p.id, "quantity": 2}],
+        "customer": {
+            "first_name": "Jane",
+            "last_name": "Doe",
+            "phone": "+33600000007",
+            "email": "jane-promo@test.com",
+        },
+    })
+    assert res.status_code == 201
+    data = res.json()
+    assert data["promo_code"] == "EURO5"
+    assert float(data["amount_before_discount"]) == pytest.approx(25.0)
+    assert float(data["discount_amount"]) == pytest.approx(5.0)
+    assert float(data["amount_total"]) == pytest.approx(20.0)

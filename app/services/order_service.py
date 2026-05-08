@@ -17,6 +17,7 @@ from app.models.product import Product
 from app.models.restaurant import Restaurant
 from app.schemas.order import OrderCreate
 from app.services.geo_service import _haversine, geocode_address_sync
+from app.services.promo_code_service import validate_promo_code_for_order
 
 
 MONEY_QUANT = Decimal("0.01")
@@ -57,6 +58,86 @@ def _sum_root_item_subtotals(order: Order) -> Decimal:
             if item.parent_order_item_id is None
         )
     )
+
+
+def compute_items_subtotal(db: Session, items: list) -> Decimal:
+    subtotal = Decimal("0.00")
+
+    for item in items:
+        if item.product_id:
+            product = db.query(Product).filter(Product.id == item.product_id).first()
+            if not product:
+                raise HTTPException(status_code=400, detail=f"Product {item.product_id} not found")
+            subtotal += _money(float(product.price) * item.quantity)
+
+        elif item.menu_id:
+            menu = db.query(Menu).filter(Menu.id == item.menu_id).first()
+            if not menu:
+                raise HTTPException(status_code=400, detail=f"Menu {item.menu_id} not found")
+            unit_price = float(menu.price)
+            for option_id in item.selected_options:
+                option = db.query(MenuOption).filter(MenuOption.id == option_id).first()
+                if not option:
+                    raise HTTPException(status_code=400, detail=f"MenuOption {option_id} not found")
+                unit_price += float(option.additional_price)
+            subtotal += _money(unit_price * item.quantity)
+
+        elif item.all_you_can_eat_id:
+            ayce = db.query(AllYouCanEat).filter(AllYouCanEat.id == item.all_you_can_eat_id).first()
+            if not ayce:
+                raise HTTPException(status_code=400, detail=f"AllYouCanEat offer {item.all_you_can_eat_id} not found")
+            subtotal += _money(float(ayce.price) * item.quantity)
+
+        else:
+            raise HTTPException(status_code=400, detail="Each item must have a product_id, menu_id, or all_you_can_eat_id")
+
+    return subtotal
+
+
+def calculate_order_pricing(
+    db: Session,
+    restaurant: Restaurant,
+    order_type: str,
+    items_subtotal: Decimal,
+    address_data: Address | None = None,
+    promo_code: str | None = None,
+) -> dict:
+    items_subtotal = _money(items_subtotal)
+    delivery_fee = Decimal("0.00")
+    delivery_distance_km = None
+
+    if order_type == "delivery" and address_data is not None:
+        quote = resolve_delivery_quote(restaurant, address_data, items_subtotal)
+        if not quote["eligible"]:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=quote["message"])
+        delivery_fee = _money(quote["delivery_fee"])
+        delivery_distance_km = _money(quote["distance_km"]) if quote["distance_km"] is not None else None
+
+    discount_amount = Decimal("0.00")
+    discount_type = None
+    discount_value = None
+    normalized_promo_code = None
+    if promo_code:
+        promo, discount_amount = validate_promo_code_for_order(db, restaurant.id, promo_code, items_subtotal)
+        discount_type = promo.discount_type
+        discount_value = _money(promo.discount_value)
+        normalized_promo_code = promo.code
+
+    discounted_subtotal = max(Decimal("0.00"), items_subtotal - discount_amount)
+    amount_total = _money(discounted_subtotal + delivery_fee)
+
+    return {
+        "items_subtotal": items_subtotal,
+        "delivery_fee": delivery_fee,
+        "delivery_distance_km": delivery_distance_km,
+        "discount_amount": _money(discount_amount),
+        "discounted_subtotal": _money(discounted_subtotal),
+        "amount_before_discount": _money(items_subtotal + delivery_fee),
+        "amount_total": amount_total,
+        "promo_code": normalized_promo_code,
+        "discount_type": discount_type,
+        "discount_value": discount_value,
+    }
 
 
 def generate_order_number(first_name: str) -> str:
@@ -183,7 +264,15 @@ def recalculate_order_delivery_totals(db: Session, order: Order) -> None:
     if order.type != "delivery" or order.address is None:
         order.delivery_fee = Decimal("0.00")
         order.delivery_distance_km = None
-        order.amount_total = items_subtotal
+        if order.promo_code:
+            _, discount_amount = validate_promo_code_for_order(db, order.restaurant_id, order.promo_code, items_subtotal)
+            order.discount_amount = discount_amount
+            order.amount_before_discount = items_subtotal
+            order.amount_total = _money(items_subtotal - discount_amount)
+        else:
+            order.discount_amount = Decimal("0.00")
+            order.amount_before_discount = items_subtotal
+            order.amount_total = items_subtotal
         return
 
     restaurant = db.query(Restaurant).filter(Restaurant.id == order.restaurant_id).first()
@@ -200,7 +289,16 @@ def recalculate_order_delivery_totals(db: Session, order: Order) -> None:
         if quote["distance_km"] is not None
         else None
     )
-    order.amount_total = _money(quote["amount_total"])
+    if order.promo_code:
+        _, discount_amount = validate_promo_code_for_order(db, order.restaurant_id, order.promo_code, items_subtotal)
+        discounted_subtotal = _money(max(Decimal("0.00"), items_subtotal - discount_amount))
+        order.discount_amount = discount_amount
+        order.amount_before_discount = _money(items_subtotal + order.delivery_fee)
+        order.amount_total = _money(discounted_subtotal + order.delivery_fee)
+    else:
+        order.discount_amount = Decimal("0.00")
+        order.amount_before_discount = _money(items_subtotal + order.delivery_fee)
+        order.amount_total = _money(quote["amount_total"])
 
 
 def create_order(db: Session, restaurant_id: int, data: OrderCreate) -> Order:
@@ -315,20 +413,14 @@ def create_order(db: Session, restaurant_id: int, data: OrderCreate) -> Order:
     if not restaurant:
         raise HTTPException(status_code=404, detail="Restaurant not found")
 
-    delivery_fee = Decimal("0.00")
-    delivery_distance_km = None
-    if data.type == "delivery" and address is not None:
-        quote = resolve_delivery_quote(restaurant, address, items_subtotal)
-        if not quote["eligible"]:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=quote["message"])
-        delivery_fee = _money(quote["delivery_fee"])
-        delivery_distance_km = (
-            _money(quote["distance_km"])
-            if quote["distance_km"] is not None
-            else None
-        )
-
-    amount_total = items_subtotal + delivery_fee
+    pricing = calculate_order_pricing(
+        db=db,
+        restaurant=restaurant,
+        order_type=data.type,
+        items_subtotal=items_subtotal,
+        address_data=address,
+        promo_code=data.promo_code,
+    )
     order = Order(
         order_number=order_number,
         restaurant_id=restaurant_id,
@@ -339,10 +431,15 @@ def create_order(db: Session, restaurant_id: int, data: OrderCreate) -> Order:
         requested_time=data.requested_time,
         table_id=data.table_id,
         address_id=address_id,
-        items_subtotal=items_subtotal,
-        delivery_fee=delivery_fee,
-        delivery_distance_km=delivery_distance_km,
-        amount_total=amount_total,
+        items_subtotal=pricing["items_subtotal"],
+        delivery_fee=pricing["delivery_fee"],
+        delivery_distance_km=pricing["delivery_distance_km"],
+        promo_code=pricing["promo_code"],
+        discount_type=pricing["discount_type"],
+        discount_value=pricing["discount_value"],
+        discount_amount=pricing["discount_amount"],
+        amount_before_discount=pricing["amount_before_discount"],
+        amount_total=pricing["amount_total"],
     )
     db.add(order)
     db.flush()

@@ -15,6 +15,7 @@ class OrderItemCreate(BaseModel):
 
 class OrderCreate(BaseModel):
     type: str  # delivery | pickup | onsite
+    promo_code: str | None = None
     comment: str | None = None
     requested_time: datetime | None = None
     table_id: int | None = None
@@ -100,6 +101,11 @@ class OrderResponse(BaseModel):
     items_subtotal: float = 0
     delivery_fee: float = 0
     delivery_distance_km: float | None = None
+    promo_code: str | None = None
+    discount_type: str | None = None
+    discount_value: float | None = None
+    discount_amount: float = 0
+    amount_before_discount: float = 0
     amount_total: float
     comment: str | None = None
     requested_time: datetime | None = None
