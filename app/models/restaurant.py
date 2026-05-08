@@ -38,3 +38,4 @@ class Restaurant(Base):
     hubrise_order_logs = relationship("HubriseOrderLog", back_populates="restaurant")
     delivery_tiers = relationship("DeliveryTier")
     opening_hours = relationship("OpeningHours")
+    announcements = relationship("RestaurantAnnouncement")
