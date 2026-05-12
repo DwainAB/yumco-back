@@ -44,6 +44,7 @@ def create_restaurant(db: Session, data: RestaurantCreate):
         name=data.name,
         email=data.email,
         phone=data.phone,
+        google_review_url=data.google_review_url,
         address_id=address.id,
         subscription_plan=selected_plan,
         ai_monthly_quota=PLAN_LIMITS[selected_plan],

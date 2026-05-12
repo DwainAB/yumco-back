@@ -1,4 +1,4 @@
-from app.services.email_service import build_base64_attachment, send_email
+from app.services.email_service import build_base64_attachment, send_email, send_email_safe
 from app.services.receipt_service import generate_receipt
 
 
@@ -17,7 +17,7 @@ def _items_html(order) -> str:
     return rows
 
 
-def _base_template(restaurant_name: str, title: str, body_html: str, order) -> str:
+def _base_template(restaurant_name: str, title: str, body_html: str, order, cta_html: str = "") -> str:
     items_rows = _items_html(order)
     return f"""
     <div style="font-family:Arial,sans-serif;max-width:560px;margin:auto;color:#222;">
@@ -27,6 +27,7 @@ def _base_template(restaurant_name: str, title: str, body_html: str, order) -> s
       <div style="border:1px solid #ddd;border-top:none;padding:24px;border-radius:0 0 8px 8px;">
         <h3 style="margin-top:0;">{title}</h3>
         {body_html}
+        {cta_html}
         <hr style="border:none;border-top:1px solid #eee;margin:20px 0;">
         <p style="font-size:13px;font-weight:bold;margin-bottom:4px;">Récapitulatif de votre commande :</p>
         <table style="width:100%;font-size:14px;border-collapse:collapse;">
@@ -143,4 +144,32 @@ async def send_order_receipt(order, restaurant, to_email: str):
         subject=f"{restaurant.name} – Reçu de la commande {order.order_number}",
         body=html,
         attachments=[attachment],
+    )
+
+
+async def send_review_followup_email(order, restaurant, to_email: str, customer_first_name: str | None = None) -> bool:
+    review_url = getattr(restaurant, "google_review_url", None)
+    if not review_url:
+        return False
+
+    customer_name = customer_first_name or (order.customer.first_name if order.customer else "client")
+    body = f"""
+    <p>Bonjour <strong>{customer_name}</strong>,</p>
+    <p>Qu'avez-vous pensé de votre expérience chez <strong>{restaurant.name}</strong> ?</p>
+    <p>Votre avis compte beaucoup pour nous et aide d'autres clients à nous découvrir.</p>
+    <p>Merci pour votre confiance et à bientôt.</p>
+    <p><em>L'équipe {restaurant.name}</em></p>
+    """
+    cta = f"""
+    <div style="margin:24px 0;text-align:center;">
+      <a href="{review_url}" style="display:inline-block;background:#111;color:#fff;text-decoration:none;padding:12px 20px;border-radius:999px;font-weight:bold;">
+        Laisser un avis sur Google
+      </a>
+    </div>
+    """
+    html = _base_template(restaurant.name, "Votre avis nous intéresse", body, order, cta_html=cta)
+    return await send_email_safe(
+        to=to_email,
+        subject=f"{restaurant.name} – Qu'avez-vous pensé de votre expérience ?",
+        body=html,
     )

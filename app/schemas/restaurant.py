@@ -32,11 +32,23 @@ def _validate_delivery_tier_ranges(tiers: list[DeliveryTierCreate] | None) -> li
 
     return tiers
 
+
+def _normalize_optional_url(value: str | None) -> str | None:
+    if value is None:
+        return value
+    normalized = value.strip()
+    if not normalized:
+        return None
+    if not normalized.startswith(("http://", "https://")):
+        raise ValueError("google_review_url must start with http:// or https://")
+    return normalized
+
 #Data required to create a restaurant
 class RestaurantCreate(BaseModel):
     name: str
     email: EmailStr
     phone: str
+    google_review_url: str | None = None
     address: AddressCreate
     subscription_plan: str = "starter"
     config: RestaurantConfigUpdate | None = None
@@ -55,11 +67,17 @@ class RestaurantCreate(BaseModel):
     def validate_delivery_tiers(cls, value: list[DeliveryTierCreate] | None) -> list[DeliveryTierCreate] | None:
         return _validate_delivery_tier_ranges(value)
 
+    @field_validator("google_review_url")
+    @classmethod
+    def validate_google_review_url(cls, value: str | None) -> str | None:
+        return _normalize_optional_url(value)
+
 #Data for updating a restaurant
 class RestaurantUpdate(BaseModel):
     name: str | None = None
     email : EmailStr | None = None
     phone : str | None = None
+    google_review_url: str | None = None
     stripe_id: str | None = None
     timezone: str | None = None
     subscription_plan: str | None = None
@@ -84,12 +102,18 @@ class RestaurantUpdate(BaseModel):
     def validate_delivery_tiers(cls, value: list[DeliveryTierCreate] | None) -> list[DeliveryTierCreate] | None:
         return _validate_delivery_tier_ranges(value)
 
+    @field_validator("google_review_url")
+    @classmethod
+    def validate_google_review_url(cls, value: str | None) -> str | None:
+        return _normalize_optional_url(value)
+
 #Data returned when fetching a restaurant
 class RestaurantResponse(BaseModel):
     id: int
     name: str
     email: EmailStr
     phone: str
+    google_review_url: str | None = None
     timezone: str = "Europe/Paris"
     address: AddressResponse | None = None
     stripe_id: str | None = None

@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
-from app.routes import auth, restaurant, admin, product, menu, upload, all_you_can_eat, table, reservation, customer, order, revenue, performance, customer_analytics, ai, stripe_connect, hubrise, promo_code, announcement
+from app.routes import auth, restaurant, admin, product, menu, upload, all_you_can_eat, table, reservation, customer, order, revenue, performance, customer_analytics, ai, stripe_connect, hubrise, promo_code, announcement, internal
 from app.services.email_service import send_email
 
 #Create the FastAPI application
@@ -35,6 +35,7 @@ app.include_router(stripe_connect.router)
 app.include_router(hubrise.router)
 app.include_router(promo_code.router)
 app.include_router(announcement.router)
+app.include_router(internal.router)
 
 #Health check
 @app.get("/")

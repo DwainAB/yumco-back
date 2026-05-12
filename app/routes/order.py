@@ -37,6 +37,7 @@ from app.services.order_email_service import (
     send_order_receipt,
 )
 from app.services.notification_service import notify_new_order
+from app.services.review_followup_service import schedule_review_followup
 from datetime import datetime, timedelta, date
 from zoneinfo import ZoneInfo
 
@@ -262,6 +263,7 @@ def update_order(restaurant_id: int, order_id: int, data: OrderUpdate, backgroun
         if new_status == "preparing":
             background_tasks.add_task(send_order_preparing, order, restaurant)
         elif new_status == "completed":
+            schedule_review_followup(db, order, restaurant)
             background_tasks.add_task(send_order_completed, order, restaurant)
         elif new_status == "cancelled":
             background_tasks.add_task(send_order_cancelled, order, restaurant)
@@ -343,6 +345,7 @@ def update_order_status(restaurant_id: int, order_id: int, data: OrderStatusUpda
     if data.status == "preparing":
         background_tasks.add_task(send_order_preparing, order, restaurant, data.preparation_time)
     elif data.status == "completed":
+        schedule_review_followup(db, order, restaurant)
         background_tasks.add_task(send_order_completed, order, restaurant)
     elif data.status == "cancelled":
         background_tasks.add_task(send_order_cancelled, order, restaurant)

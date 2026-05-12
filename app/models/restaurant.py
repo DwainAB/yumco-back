@@ -11,6 +11,7 @@ class Restaurant(Base):
     phone = Column(String, nullable=False)
     email = Column(String, nullable=False)
     address_id= Column(Integer, ForeignKey("addresses.id"), nullable=True)
+    google_review_url = Column(String, nullable=True)
     address = relationship("Address")
     stripe_id=Column(String, nullable=True)
     stripe_charges_enabled = Column(Boolean, nullable=False, default=False)

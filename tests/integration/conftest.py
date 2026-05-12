@@ -52,6 +52,8 @@ def _bootstrap_test_db():
     import app.models.user_device  # noqa
     import app.models.pending_online_order  # noqa
     import app.models.restaurant_promo_code  # noqa
+    import app.models.restaurant_announcement  # noqa
+    import app.models.review_followup  # noqa
 
     from app.db.database import Base
 
@@ -74,6 +76,8 @@ TRUNCATE_ORDER = [
     "order_items",
     "orders",
     "restaurant_promo_codes",
+    "review_followups",
+    "restaurant_announcements",
     "delivery_tiers",
     "all_you_can_eat",
     "menu_options",
