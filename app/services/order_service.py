@@ -302,6 +302,13 @@ def recalculate_order_delivery_totals(db: Session, order: Order) -> None:
 
 
 def create_order(db: Session, restaurant_id: int, data: OrderCreate) -> Order:
+    restaurant = db.query(Restaurant).filter(
+        Restaurant.id == restaurant_id,
+        Restaurant.is_deleted == False,
+    ).first()
+    if not restaurant:
+        raise HTTPException(status_code=404, detail="Restaurant not found")
+
     customer_id = None
     if data.type != "onsite":
         if not data.customer:
@@ -408,10 +415,6 @@ def create_order(db: Session, restaurant_id: int, data: OrderCreate) -> Order:
             raise HTTPException(status_code=400, detail=f"Table {data.table_id} not found for this restaurant")
         if data.type == "onsite":
             table.is_available = False
-
-    restaurant = db.query(Restaurant).filter(Restaurant.id == restaurant_id).first()
-    if not restaurant:
-        raise HTTPException(status_code=404, detail="Restaurant not found")
 
     pricing = calculate_order_pricing(
         db=db,

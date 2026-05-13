@@ -24,6 +24,7 @@ class Settings(BaseSettings):
         "https://dashboard.yumco.fr",
         "https://platform.yumco.fr",
         "http://localhost:3000",
+        "http://localhost:5173",
         "http://127.0.0.1:3000",
     ]
     STRIPE_SECRET_KEY: str | None = None
