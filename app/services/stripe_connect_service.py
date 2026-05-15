@@ -178,7 +178,7 @@ def sync_order_payment_from_checkout(db: Session, session_payload: stripe.checko
         checkout_session_id = session_payload.get("id")
         if not checkout_session_id:
             print("[stripe_connect] checkout event skipped: missing session id")
-            return
+            return None
         pending_order = (
             db.query(PendingOnlineOrder)
             .filter(PendingOnlineOrder.checkout_session_id == checkout_session_id)
@@ -186,7 +186,7 @@ def sync_order_payment_from_checkout(db: Session, session_payload: stripe.checko
         )
         if not pending_order:
             print("[stripe_connect] checkout event skipped: pending order not found", {"session_id": checkout_session_id})
-            return
+            return None
 
         order_data = OrderCreate(**json.loads(pending_order.payload_json))
         order = create_order(db, pending_order.restaurant_id, order_data)
@@ -196,18 +196,19 @@ def sync_order_payment_from_checkout(db: Session, session_payload: stripe.checko
         db.delete(pending_order)
         db.commit()
         print("[stripe_connect] order created from pending checkout", {"order_id": order.id, "session_id": checkout_session_id})
-        return
+        return order
 
     order = db.query(Order).filter(Order.id == int(order_id)).first()
     if not order:
         print("[stripe_connect] checkout event skipped: order not found", {"order_id": order_id})
-        return
+        return None
 
     order.stripe_checkout_session_id = session_payload.get("id")
     order.stripe_payment_intent_id = session_payload.get("payment_intent")
     order.payment_status = "paid"
     db.commit()
     print("[stripe_connect] existing order marked as paid", {"order_id": order.id})
+    return order
 
 
 def sync_order_payment_from_charge(db: Session, charge_payload: stripe.Charge) -> None:

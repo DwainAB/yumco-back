@@ -27,6 +27,8 @@ from app.services.stripe_connect_service import (
     sync_order_payment_from_charge,
     sync_order_payment_from_checkout,
 )
+from app.services.notification_service import notify_new_order
+from app.services.order_email_service import send_order_confirmed
 
 
 router = APIRouter(tags=["stripe-connect"])
@@ -139,7 +141,13 @@ async def handle_stripe_webhook(
 
     if event_type in {"checkout.session.completed", "checkout.session.async_payment_succeeded"}:
         if event_object.get("mode") != "subscription":
-            sync_order_payment_from_checkout(db, event_object)
+            order = sync_order_payment_from_checkout(db, event_object)
+            metadata = event_object.get("metadata") or {}
+            if order and not metadata.get("order_id"):
+                restaurant = db.query(Restaurant).filter(Restaurant.id == order.restaurant_id).first()
+                if restaurant:
+                    await send_order_confirmed(order, restaurant)
+                await notify_new_order(order.restaurant_id, order.order_number)
     elif event_type == "checkout.session.async_payment_failed":
         print("[stripe_webhook] async payment failed", {"session_id": event_object.get("id")})
     elif event_type in {"charge.succeeded", "charge.refunded"}:
