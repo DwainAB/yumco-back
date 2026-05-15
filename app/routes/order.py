@@ -1,3 +1,4 @@
+from datetime import date, datetime, timedelta
 from types import SimpleNamespace
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
@@ -26,6 +27,7 @@ from app.schemas.order_analytics import OrderAnalyticsResponse
 from app.core.security import get_current_user
 from app.models.user import User
 from app.services.order_analytics_service import get_order_analytics
+from app.services.order_export_service import generate_orders_csv, generate_orders_summary_pdf, get_export_orders
 from app.services.order_service import create_order, recalculate_order_delivery_totals, resolve_delivery_quote
 from app.services.receipt_service import generate_receipt
 from app.services.hubrise_service import sync_order_items_to_hubrise, sync_order_status_to_hubrise, sync_order_to_hubrise
@@ -38,7 +40,6 @@ from app.services.order_email_service import (
 )
 from app.services.notification_service import notify_new_order
 from app.services.review_followup_service import schedule_review_followup
-from datetime import datetime, timedelta, date
 from zoneinfo import ZoneInfo
 
 router = APIRouter(prefix="/restaurants", tags=["orders"])
@@ -198,20 +199,45 @@ def list_orders(
     restaurant_id: int,
     table_id: int | None = Query(default=None),
     status_filter: str | None = Query(default=None, alias="status"),
+    date_from: date | None = Query(default=None),
+    date_to: date | None = Query(default=None),
     month: int | None = Query(default=None, ge=1, le=12),
     year: int | None = Query(default=None, ge=2000, le=2100),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    restaurant = db.query(Restaurant).filter(Restaurant.id == restaurant_id).first()
+    if not restaurant:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Restaurant not found")
+
+    if date_from and date_to and date_from > date_to:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="date_from must be before or equal to date_to")
+    if (date_from is None) != (date_to is None):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="date_from and date_to must be provided together")
+    if (date_from or date_to) and (month is not None or year is not None):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="date range filters cannot be combined with month/year")
+    if month is not None and year is None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="year is required when month is provided")
+    if month is None and year is not None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="month is required when year is provided")
+
     q = db.query(Order).filter(Order.restaurant_id == restaurant_id)
     if table_id is not None:
         q = q.filter(Order.table_id == table_id)
     if status_filter is not None:
         q = q.filter(Order.status == status_filter)
-    if month is not None:
-        q = q.filter(extract("month", Order.created_at) == month)
-    if year is not None:
-        q = q.filter(extract("year", Order.created_at) == year)
+
+    timezone_name = restaurant.timezone or "Europe/Paris"
+    tz = ZoneInfo(timezone_name)
+    if date_from and date_to:
+        start_utc = datetime.combine(date_from, datetime.min.time(), tzinfo=tz).astimezone(ZoneInfo("UTC"))
+        end_utc = datetime.combine(date_to + timedelta(days=1), datetime.min.time(), tzinfo=tz).astimezone(ZoneInfo("UTC"))
+        q = q.filter(Order.created_at >= start_utc, Order.created_at < end_utc)
+    else:
+        if month is not None:
+            q = q.filter(extract("month", Order.created_at) == month)
+        if year is not None:
+            q = q.filter(extract("year", Order.created_at) == year)
     return q.order_by(Order.created_at.desc()).all()
 
 
@@ -221,6 +247,52 @@ def get_orders_analytics(restaurant_id: int, current_user: User = Depends(get_cu
     if analytics is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Restaurant not found")
     return analytics
+
+
+@router.get("/{restaurant_id}/orders/export")
+def export_orders(
+    restaurant_id: int,
+    format: str = Query(default="csv", pattern="^(csv|pdf)$"),
+    date_from: date | None = Query(default=None),
+    date_to: date | None = Query(default=None),
+    month: int | None = Query(default=None, ge=1, le=12),
+    year: int | None = Query(default=None, ge=2000, le=2100),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    try:
+        export_data = get_export_orders(
+            db,
+            restaurant_id,
+            start_date=date_from,
+            end_date=date_to,
+            month=month,
+            year=year,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+    if export_data is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Restaurant not found")
+
+    restaurant, orders, timezone_name, period_label = export_data
+
+    safe_period = period_label.replace("/", "-").replace(" ", "_")
+    safe_name = restaurant.name.lower().replace(" ", "_")
+    if format == "pdf":
+        payload = generate_orders_summary_pdf(restaurant, orders, timezone_name, period_label)
+        filename = f"recap_commandes_{safe_name}_{safe_period}.pdf"
+        media_type = "application/pdf"
+    else:
+        payload = generate_orders_csv(restaurant, orders, timezone_name, period_label)
+        filename = f"recap_commandes_{safe_name}_{safe_period}.csv"
+        media_type = "text/csv; charset=utf-8"
+
+    return StreamingResponse(
+        payload,
+        media_type=media_type,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 @router.get("/{restaurant_id}/orders/{order_id}", response_model=OrderResponse)
 def get_order(restaurant_id: int, order_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
