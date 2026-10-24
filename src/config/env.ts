@@ -78,6 +78,8 @@ const EnvSchema = z.object({
   STRIPE_PRICE_TABLET_RENTAL_YEARLY: optional(),
   STRIPE_PRICE_PRINTER_RENTAL_MONTHLY: optional(),
   STRIPE_PRICE_PRINTER_RENTAL_YEARLY: optional(),
+  /** Envoi des e-mails : Resend si présente, sinon Brevo (BREVO_API_KEY). */
+  RESEND_API_KEY: optional(),
   BREVO_API_KEY: optional(),
   REVIEW_FOLLOWUPS_CRON_SECRET: optional(),
   HUBRISE_CLIENT_ID: optional(),

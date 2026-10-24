@@ -24,6 +24,7 @@ Variables propres au backend Node, en plus de celles du Python :
 | `NODE_ENV` | `development` | `production` en ligne (logs JSON) |
 | `LOG_LEVEL` | `info` | Niveau des logs |
 | `STRICT_RESTAURANT_ACCESS` | `true` | Corrections de sécurité (voir plus bas). `false` : comportement exact du Python |
+| `RESEND_API_KEY` | — | Envoi des e-mails par Resend. Absente : Brevo (`BREVO_API_KEY`), comme le backend Python. `MAIL_FROM` accepte `Nom <adresse>` |
 | `COCKPIT_API_KEY` | — | Clé partagée avec le cockpit (questionnaire, module `onboarding`). Absente : routes du cockpit en 503 |
 | `ONBOARDING_FORM_URL` | — | Page publique du questionnaire ; son origine est autorisée en CORS |
 | `ONBOARDING_LINK_DAYS` | `30` | Validité d'un lien de questionnaire |
@@ -110,7 +111,7 @@ l'identique est acceptée, seule une valeur modifiée est refusée.
 ## Déploiement sur Railway
 
 1. Créer un nouveau service à partir de ce dossier (le backend Python reste en place).
-2. Variables : les mêmes que le service Python (`DATABASE_URL`, `SECRET_KEY`, Brevo, Stripe, Cloudinary, OpenAI, HubRise…),
+2. Variables : les mêmes que le service Python (`DATABASE_URL`, `SECRET_KEY`, Resend ou Brevo, Stripe, Cloudinary, OpenAI, HubRise…),
    plus `NODE_ENV=production`.
 3. Commande de build : `npm ci && npm run build` (les dépendances de développement sont nécessaires au build :
    `prisma` et `typescript`). Commande de démarrage : `npm start`.
