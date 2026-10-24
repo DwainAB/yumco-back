@@ -1,7 +1,7 @@
 /**
  * Restaurants (restaurant_service.py).
  */
-import { prisma } from '../../db/prisma.js';
+import { prisma, type Tx } from '../../db/prisma.js';
 import type { Prisma } from '../../generated/prisma/client.js';
 import { applySubscriptionPlan, PLAN_LIMITS, PLAN_TOKEN_LIMITS } from '../subscriptions/subscriptions.service.js';
 import { restaurantInclude } from './restaurants.serializers.js';
@@ -68,33 +68,36 @@ export const getRestaurantsByUser = (userId: number) =>
 export const getAllRestaurants = (deleted: boolean) =>
   prisma.restaurant.findMany({ where: { is_deleted: deleted }, include: restaurantInclude, orderBy: { id: 'asc' } });
 
-/** Crée le restaurant, son adresse, sa configuration, ses tranches de livraison et ses horaires en une transaction. */
-export const createRestaurant = async (data: RestaurantCreate) => {
-  const restaurantId = await prisma.$transaction(async (tx) => {
-    const address = await tx.address.create({ data: data.address });
-    const plan = data.subscription_plan || 'starter';
-    const restaurant = await tx.restaurant.create({
-      data: {
-        ...RESTAURANT_DEFAULTS,
-        name: data.name,
-        email: data.email,
-        phone: data.phone,
-        google_review_url: data.google_review_url ?? null,
-        address_id: address.id,
-        subscription_plan: plan,
-        ai_monthly_quota: PLAN_LIMITS[plan],
-        ai_usage_count: 0,
-        ai_monthly_token_quota: PLAN_TOKEN_LIMITS[plan],
-        ai_token_usage_count: 0,
-      },
-    });
-    await tx.restaurantConfig.create({
-      data: { ...RESTAURANT_CONFIG_DEFAULTS, ...configData(data.config), restaurant_id: restaurant.id } as Prisma.RestaurantConfigUncheckedCreateInput,
-    });
-    if (data.delivery_tiers?.length) await tx.deliveryTier.createMany({ data: tierRows(restaurant.id, data.delivery_tiers) });
-    if (data.opening_hours?.length) await tx.openingHours.createMany({ data: openingHoursRows(restaurant.id, data.opening_hours) });
-    return restaurant.id;
+/** Insère le restaurant, son adresse, sa configuration, ses tranches de livraison et ses horaires dans la transaction `tx`. */
+export const insertRestaurant = async (tx: Tx, data: RestaurantCreate) => {
+  const address = await tx.address.create({ data: data.address });
+  const plan = data.subscription_plan || 'starter';
+  const restaurant = await tx.restaurant.create({
+    data: {
+      ...RESTAURANT_DEFAULTS,
+      name: data.name,
+      email: data.email,
+      phone: data.phone,
+      google_review_url: data.google_review_url ?? null,
+      address_id: address.id,
+      subscription_plan: plan,
+      ai_monthly_quota: PLAN_LIMITS[plan],
+      ai_usage_count: 0,
+      ai_monthly_token_quota: PLAN_TOKEN_LIMITS[plan],
+      ai_token_usage_count: 0,
+    },
   });
+  await tx.restaurantConfig.create({
+    data: { ...RESTAURANT_CONFIG_DEFAULTS, ...configData(data.config), restaurant_id: restaurant.id } as Prisma.RestaurantConfigUncheckedCreateInput,
+  });
+  if (data.delivery_tiers?.length) await tx.deliveryTier.createMany({ data: tierRows(restaurant.id, data.delivery_tiers) });
+  if (data.opening_hours?.length) await tx.openingHours.createMany({ data: openingHoursRows(restaurant.id, data.opening_hours) });
+  return restaurant.id;
+};
+
+/** Crée le restaurant et tout ce qui l'accompagne en une transaction. */
+export const createRestaurant = async (data: RestaurantCreate) => {
+  const restaurantId = await prisma.$transaction((tx) => insertRestaurant(tx, data));
   return prisma.restaurant.findUniqueOrThrow({ where: { id: restaurantId }, include: restaurantInclude });
 };
 

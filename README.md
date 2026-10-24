@@ -24,6 +24,13 @@ Variables propres au backend Node, en plus de celles du Python :
 | `NODE_ENV` | `development` | `production` en ligne (logs JSON) |
 | `LOG_LEVEL` | `info` | Niveau des logs |
 | `STRICT_RESTAURANT_ACCESS` | `true` | Corrections de sécurité (voir plus bas). `false` : comportement exact du Python |
+| `COCKPIT_API_KEY` | — | Clé partagée avec le cockpit (questionnaire, module `onboarding`). Absente : routes du cockpit en 503 |
+| `ONBOARDING_FORM_URL` | — | Page publique du questionnaire ; son origine est autorisée en CORS |
+| `ONBOARDING_LINK_DAYS` | `30` | Validité d'un lien de questionnaire |
+| `PLATFORM_BASE_URL` | `https://platform.yumco.fr` | Lien de la page de commande dans l'e-mail de bienvenue |
+| `APP_IOS_URL` / `APP_ANDROID_URL` | — / Google Play | Liens de l'application dans l'e-mail de bienvenue |
+
+Les tables `onboarding_invitations` et `restaurant_sites` sont créées par `prisma/sql/001_onboarding.sql` (ajout seul, à appliquer une fois).
 
 ## Commandes
 

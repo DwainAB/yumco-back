@@ -36,6 +36,8 @@ const TABLES = [
   'reservations',
   'tables',
   'customers',
+  'restaurant_sites',
+  'onboarding_invitations',
   'restaurant_configs',
   'user_devices',
   'roles',

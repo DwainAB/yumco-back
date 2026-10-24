@@ -11,10 +11,10 @@ cloudinary.config({
   secure: true,
 });
 
-/** Envoie l'image dans le dossier yumco/products et renvoie son URL https. */
-export const uploadImage = (file: Buffer): Promise<string> =>
+/** Envoie l'image dans le dossier Cloudinary `folder` (yumco/products par défaut) et renvoie son URL https. */
+export const uploadImage = (file: Buffer, folder = 'yumco/products'): Promise<string> =>
   new Promise((resolve, reject) => {
-    const stream = cloudinary.uploader.upload_stream({ folder: 'yumco/products' }, (error, result?: UploadApiResponse) => {
+    const stream = cloudinary.uploader.upload_stream({ folder }, (error, result?: UploadApiResponse) => {
       if (error || !result) reject(error ?? new Error('Cloudinary upload failed'));
       else resolve(result.secure_url);
     });

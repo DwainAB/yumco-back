@@ -40,8 +40,9 @@ describe('routes smoke', () => {
   const routes = collectRoutes();
 
   it('the application declares all the Python routes', () => {
-    // Python : 107 routes dans les routeurs + « / » et « /test-email » ; Node ajoute /subscription (remise en place).
-    expect(routes.length).toBe(110);
+    // Python : 107 routes dans les routeurs + « / » et « /test-email » ; Node ajoute /subscription (remise en place)
+    // et les 12 routes du questionnaire du cockpit (onboarding).
+    expect(routes.length).toBe(122);
   });
 
   it.each(routes.map((route) => [`${route.method.toUpperCase()} ${route.path}`, route] as const))('%s', async (_label, route) => {

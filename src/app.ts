@@ -25,6 +25,7 @@ import { ordersRouter } from './modules/orders/orders.routes.js';
 import { promoCodesRouter } from './modules/promo-codes/promo-codes.routes.js';
 import { reservationsRouter } from './modules/reservations/reservations.routes.js';
 import { restaurantsRouter } from './modules/restaurants/restaurants.routes.js';
+import { onboardingRouter } from './modules/onboarding/onboarding.routes.js';
 import { internalRouter } from './modules/review-followups/internal.routes.js';
 import { stripeRouter } from './modules/stripe/stripe.routes.js';
 import { tablesRouter } from './modules/tables/tables.routes.js';
@@ -49,7 +50,9 @@ export const createApp = () => {
   app.disable('x-powered-by');
 
   // Réponse 200 aux requêtes préalables (preflight), comme le CORSMiddleware de Starlette.
-  app.use(cors({ origin: env.CORS_ALLOWED_ORIGINS, credentials: true, optionsSuccessStatus: 200 }));
+  // La page publique du questionnaire est toujours autorisée, sans avoir à modifier CORS_ALLOWED_ORIGINS.
+  const origins = env.ONBOARDING_FORM_URL ? [...env.CORS_ALLOWED_ORIGINS, new URL(env.ONBOARDING_FORM_URL).origin] : env.CORS_ALLOWED_ORIGINS;
+  app.use(cors({ origin: origins, credentials: true, optionsSuccessStatus: 200 }));
   app.use(RAW_BODY_PATHS, express.raw({ type: () => true, limit: '5mb' }));
   app.use(express.json({ type: isJsonRequest, limit: '10mb' }));
   app.use(express.urlencoded({ extended: false, limit: '10mb' }));
@@ -83,6 +86,7 @@ export const createApp = () => {
   app.use(promoCodesRouter);
   app.use(announcementsRouter);
   app.use(internalRouter);
+  app.use(onboardingRouter);
 
   app.get('/', (_req, res) => {
     res.json({ message: 'Yumco API is running' });

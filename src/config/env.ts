@@ -98,6 +98,18 @@ const EnvSchema = z.object({
     .enum(['true', 'false', '1', '0'])
     .default('true')
     .transform((value) => value === 'true' || value === '1'),
+
+  /* Questionnaire du cockpit (module onboarding) */
+  /** Clé partagée avec le cockpit (en-tête `x-cockpit-key`). Absente : les routes du cockpit répondent 503. */
+  COCKPIT_API_KEY: optional(),
+  /** Page publique du questionnaire : le lien envoyé est `<ONBOARDING_FORM_URL>?t=<jeton>`, et son origine est autorisée (CORS). */
+  ONBOARDING_FORM_URL: optional(),
+  /** Durée de validité d'un lien de questionnaire, en jours. */
+  ONBOARDING_LINK_DAYS: integer().default(30),
+  /** Plateforme de commande et de réservation (lien dans l'e-mail de bienvenue). */
+  PLATFORM_BASE_URL: z.string().default('https://platform.yumco.fr'),
+  APP_IOS_URL: optional(),
+  APP_ANDROID_URL: z.string().default('https://play.google.com/store/apps/details?id=com.yumco.yumco'),
 });
 
 export type Env = z.infer<typeof EnvSchema>;

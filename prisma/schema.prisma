@@ -211,6 +211,32 @@ model Menu {
   @@map("menus")
 }
 
+/// Lien de questionnaire envoyé à un restaurateur (usage unique). Créé depuis le cockpit.
+model OnboardingInvitation {
+  id                Int             @id @default(autoincrement())
+  /// Empreinte SHA-256 du jeton du lien : le jeton lui-même n'est jamais stocké.
+  token_hash        String          @unique @db.VarChar(64)
+  /// starter | pro_ai | business_ai
+  subscription_plan String          @db.VarChar
+  recipient_email   String?         @db.VarChar
+  /// pending | submitted | imported | cancelled
+  status            String          @default("pending") @db.VarChar
+  /// Réponses du questionnaire, telles qu'envoyées par le restaurateur.
+  answers           Json?           @db.JsonB
+  /// Images envoyées depuis le lien (limite contre les abus).
+  upload_count      Int             @default(0)
+  restaurant_id     Int?
+  expires_at        DateTime        @db.Timestamptz(6)
+  submitted_at      DateTime?       @db.Timestamptz(6)
+  imported_at       DateTime?       @db.Timestamptz(6)
+  created_at        DateTime        @default(now()) @db.Timestamptz(6)
+  restaurant        Restaurant?     @relation(fields: [restaurant_id], references: [id], onDelete: SetNull, onUpdate: NoAction)
+  site              RestaurantSite?
+
+  @@index([status], map: "ix_onboarding_invitations_status")
+  @@map("onboarding_invitations")
+}
+
 model OpeningHours {
   id            Int        @id @default(autoincrement())
   restaurant_id Int
@@ -427,6 +453,40 @@ model RestaurantPromoCode {
   @@map("restaurant_promo_codes")
 }
 
+/// Site internet du restaurant et informations de design, issues du questionnaire du cockpit.
+model RestaurantSite {
+  id                   Int                   @id @default(autoincrement())
+  restaurant_id        Int                   @unique
+  invitation_id        Int?                  @unique
+  /// design | development | online
+  status               String                @default("design") @db.VarChar
+  cuisine_type         String?               @db.VarChar
+  custom_requests      String?
+  logo_url             String?               @db.VarChar
+  /// [{ "url": "...", "description": "..." }]
+  images               Json                  @default("[]") @db.JsonB
+  /// ["#RRGGBB", ...]
+  brand_colors         Json                  @default("[]") @db.JsonB
+  brand_font           String?               @db.VarChar
+  /// Souhait exprimé dans le questionnaire : le compte Stripe est configuré à la main.
+  wants_online_payment Boolean               @default(false)
+  manager_first_name   String                @db.VarChar
+  manager_last_name    String                @db.VarChar
+  manager_email        String                @db.VarChar
+  manager_phone        String?               @db.VarChar
+  site_url             String?               @db.VarChar
+  repo_url             String?               @db.VarChar
+  owner_user_id        Int?
+  credentials_sent_at  DateTime?             @db.Timestamptz(6)
+  created_at           DateTime              @default(now()) @db.Timestamptz(6)
+  updated_at           DateTime              @default(now()) @updatedAt @db.Timestamptz(6)
+  restaurant           Restaurant            @relation(fields: [restaurant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  invitation           OnboardingInvitation? @relation(fields: [invitation_id], references: [id], onDelete: SetNull, onUpdate: NoAction)
+  owner                User?                 @relation(fields: [owner_user_id], references: [id], onDelete: SetNull, onUpdate: NoAction)
+
+  @@map("restaurant_sites")
+}
+
 model Restaurant {
   id                                  Int                      @id @default(autoincrement())
   name                                String                   @db.VarChar
@@ -475,6 +535,8 @@ model Restaurant {
   review_followups                    ReviewFollowup[]
   roles                               Role[]
   tables                              Table[]
+  onboarding_invitations              OnboardingInvitation[]
+  site                                RestaurantSite?
 
   @@index([id], map: "ix_restaurants_id")
   @@map("restaurants")
@@ -565,6 +627,7 @@ model User {
   prepared_orders     Order[]
   roles               Role[]
   devices             UserDevice[]
+  owned_sites         RestaurantSite[]
 
   @@index([id], map: "ix_users_id")
   @@map("users")
