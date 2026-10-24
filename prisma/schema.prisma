@@ -1,0 +1,571 @@
+// Schéma lu depuis la base Yumco (`prisma db pull`), puis renommé :
+// - modèles en PascalCase, reliés à leur table par @@map ;
+// - colonnes gardées en snake_case, comme dans la base et dans l'API ;
+// - relations nommées comme dans les modèles SQLAlchemy du backend Python.
+// Aucune de ces modifications ne change la base.
+
+generator client {
+  provider            = "prisma-client"
+  output              = "../src/generated/prisma"
+  moduleFormat        = "esm"
+  importFileExtension = "js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Address {
+  id          Int          @id @default(autoincrement())
+  street      String       @db.VarChar
+  city        String       @db.VarChar
+  postal_code String       @db.VarChar
+  country     String       @db.VarChar
+  created_at  DateTime?    @default(now()) @db.Timestamptz(6)
+  orders      Order[]
+  restaurants Restaurant[]
+
+  @@index([id], map: "ix_addresses_id")
+  @@map("addresses")
+}
+
+model AiConversationMessage {
+  id              Int            @id @default(autoincrement())
+  conversation_id Int
+  role            String         @db.VarChar
+  content         String         @db.VarChar
+  input_tokens    Int?
+  output_tokens   Int?
+  total_tokens    Int?
+  created_at      DateTime?      @default(now()) @db.Timestamptz(6)
+  conversation    AiConversation @relation(fields: [conversation_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([conversation_id, created_at], map: "ix_ai_conversation_messages_conversation_id_created_at")
+  @@index([id], map: "ix_ai_conversation_messages_id")
+  @@map("ai_conversation_messages")
+}
+
+model AiConversation {
+  id                 Int                     @id @default(autoincrement())
+  restaurant_id      Int
+  created_by_user_id Int?
+  title              String                  @db.VarChar
+  created_at         DateTime?               @default(now()) @db.Timestamptz(6)
+  updated_at         DateTime?               @default(now()) @db.Timestamptz(6)
+  messages           AiConversationMessage[]
+  created_by         User?                   @relation(fields: [created_by_user_id], references: [id], onUpdate: NoAction)
+  restaurant         Restaurant              @relation(fields: [restaurant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([id], map: "ix_ai_conversations_id")
+  @@index([restaurant_id, updated_at], map: "ix_ai_conversations_restaurant_id_updated_at")
+  @@map("ai_conversations")
+}
+
+/// Table d'Alembic (migrations du backend Python). Gardée pour que Prisma ne la supprime jamais.
+model AlembicVersion {
+  version_num String @id(map: "alembic_version_pkc") @db.VarChar(32)
+
+  @@map("alembic_version")
+}
+
+model AllYouCanEat {
+  id            Int         @id @default(autoincrement())
+  restaurant_id Int
+  name          String      @db.VarChar
+  price         Decimal     @db.Decimal(10, 2)
+  created_at    DateTime?   @default(now()) @db.Timestamptz(6)
+  updated_at    DateTime?   @db.Timestamptz(6)
+  restaurant    Restaurant  @relation(fields: [restaurant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  order_items   OrderItem[]
+
+  @@index([id], map: "ix_all_you_can_eat_id")
+  @@map("all_you_can_eat")
+}
+
+model Category {
+  id            Int        @id @default(autoincrement())
+  name          String     @db.VarChar
+  restaurant_id Int
+  created_at    DateTime?  @default(now()) @db.Timestamptz(6)
+  kind          String     @default("other") @db.VarChar
+  restaurant    Restaurant @relation(fields: [restaurant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  products      Product[]
+
+  @@index([id], map: "ix_categories_id")
+  @@map("categories")
+}
+
+model Customer {
+  id            Int        @id @default(autoincrement())
+  restaurant_id Int
+  first_name    String     @db.VarChar
+  last_name     String     @db.VarChar
+  email         String?    @db.VarChar
+  phone         String?    @db.VarChar
+  created_at    DateTime?  @default(now()) @db.Timestamptz(6)
+  updated_at    DateTime?  @db.Timestamptz(6)
+  restaurant    Restaurant @relation(fields: [restaurant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  orders        Order[]
+
+  @@index([id], map: "ix_customers_id")
+  @@map("customers")
+}
+
+model DeliveryTier {
+  id               Int        @id @default(autoincrement())
+  restaurant_id    Int
+  min_km           Int
+  max_km           Int
+  price            Decimal    @db.Decimal(10, 2)
+  min_order_amount Decimal    @default(0) @db.Decimal(10, 2)
+  restaurant       Restaurant @relation(fields: [restaurant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([id], map: "ix_delivery_tiers_id")
+  @@map("delivery_tiers")
+}
+
+model HubriseConnection {
+  id                  Int        @id @default(autoincrement())
+  restaurant_id       Int        @unique
+  hubrise_location_id String     @db.VarChar
+  hubrise_account_id  String     @db.VarChar
+  access_token        String     @db.VarChar
+  refresh_token       String?    @db.VarChar
+  token_type          String     @db.VarChar
+  scope               String?    @db.VarChar
+  created_at          DateTime   @default(now()) @db.Timestamptz(6)
+  updated_at          DateTime   @default(now()) @db.Timestamptz(6)
+  restaurant          Restaurant @relation(fields: [restaurant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([id], map: "ix_hubrise_connections_id")
+  @@map("hubrise_connections")
+}
+
+model HubriseOrderLog {
+  id                  Int        @id @default(autoincrement())
+  order_id            Int
+  restaurant_id       Int
+  hubrise_location_id String     @db.VarChar
+  request_payload     Json       @db.Json
+  response_payload    Json?      @db.Json
+  status              String     @db.VarChar
+  error_message       String?
+  created_at          DateTime   @default(now()) @db.Timestamptz(6)
+  updated_at          DateTime   @default(now()) @db.Timestamptz(6)
+  order               Order      @relation(fields: [order_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  restaurant          Restaurant @relation(fields: [restaurant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([id], map: "ix_hubrise_order_logs_id")
+  @@map("hubrise_order_logs")
+}
+
+model MenuCategory {
+  id            Int          @id @default(autoincrement())
+  menu_id       Int
+  name          String       @db.VarChar
+  max_options   Int?
+  is_required   Boolean?
+  display_order Int?
+  created_at    DateTime?    @default(now()) @db.Timestamptz(6)
+  updated_at    DateTime?    @db.Timestamptz(6)
+  menu          Menu         @relation(fields: [menu_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  options       MenuOption[]
+
+  @@index([id], map: "ix_menu_categories_id")
+  @@map("menu_categories")
+}
+
+model MenuOption {
+  id               Int          @id @default(autoincrement())
+  category_id      Int
+  product_id       Int?
+  name             String       @db.VarChar
+  additional_price Decimal?     @db.Decimal(10, 2)
+  display_order    Int?
+  created_at       DateTime?    @default(now()) @db.Timestamptz(6)
+  updated_at       DateTime?    @db.Timestamptz(6)
+  category         MenuCategory @relation(fields: [category_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  product          Product?     @relation(fields: [product_id], references: [id], onUpdate: NoAction)
+  order_items      OrderItem[]
+
+  @@index([id], map: "ix_menu_options_id")
+  @@map("menu_options")
+}
+
+model Menu {
+  id               Int            @id @default(autoincrement())
+  restaurant_id    Int
+  name             String         @db.VarChar
+  price            Decimal        @db.Decimal(10, 2)
+  is_available     Boolean?
+  available_online Boolean?
+  available_onsite Boolean?
+  image_url        String?        @db.VarChar
+  created_at       DateTime?      @default(now()) @db.Timestamptz(6)
+  updated_at       DateTime?      @db.Timestamptz(6)
+  categories       MenuCategory[]
+  restaurant       Restaurant     @relation(fields: [restaurant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  order_items      OrderItem[]
+
+  @@index([id], map: "ix_menus_id")
+  @@map("menus")
+}
+
+model OpeningHours {
+  id            Int        @id @default(autoincrement())
+  restaurant_id Int
+  /// 0 = lundi … 6 = dimanche
+  day           Int
+  lunch_open    String?    @db.VarChar
+  lunch_close   String?    @db.VarChar
+  dinner_open   String?    @db.VarChar
+  dinner_close  String?    @db.VarChar
+  is_closed     Boolean?
+  restaurant    Restaurant @relation(fields: [restaurant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([id], map: "ix_opening_hours_id")
+  @@map("opening_hours")
+}
+
+model OrderItem {
+  id                   Int           @id @default(autoincrement())
+  order_id             Int
+  name                 String        @db.VarChar
+  quantity             Int
+  unit_price           Decimal       @db.Decimal(10, 2)
+  subtotal             Decimal       @db.Decimal(10, 2)
+  comment              String?       @db.VarChar
+  product_id           Int?
+  menu_id              Int?
+  menu_option_id       Int?
+  all_you_can_eat_id   Int?
+  parent_order_item_id Int?
+  created_at           DateTime?     @default(now()) @db.Timestamptz(6)
+  all_you_can_eat      AllYouCanEat? @relation(fields: [all_you_can_eat_id], references: [id], onUpdate: NoAction)
+  menu                 Menu?         @relation(fields: [menu_id], references: [id], onUpdate: NoAction)
+  menu_option          MenuOption?   @relation(fields: [menu_option_id], references: [id], onUpdate: NoAction)
+  order                Order         @relation(fields: [order_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  /// Option choisie dans un menu : rattachée à la ligne du menu.
+  parent               OrderItem?    @relation("OrderItemOptions", fields: [parent_order_item_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  children             OrderItem[]   @relation("OrderItemOptions")
+  product              Product?      @relation(fields: [product_id], references: [id], onUpdate: NoAction)
+
+  @@index([id], map: "ix_order_items_id")
+  @@map("order_items")
+}
+
+model Order {
+  id                         Int               @id @default(autoincrement())
+  order_number               String            @unique @db.VarChar
+  restaurant_id              Int
+  customer_id                Int?
+  /// delivery | pickup | onsite
+  type                       String            @db.VarChar
+  /// pending | preparing | completed | cancelled
+  status                     String?           @db.VarChar
+  /// unpaid | awaiting_payment | paid | refunded
+  payment_status             String?           @db.VarChar
+  amount_total               Decimal           @db.Decimal(10, 2)
+  comment                    String?           @db.VarChar
+  requested_time             DateTime?         @db.Timestamptz(6)
+  completed_at               DateTime?         @db.Timestamptz(6)
+  address_id                 Int?
+  table_id                   Int?
+  preparing_by               Int?
+  created_at                 DateTime?         @default(now()) @db.Timestamptz(6)
+  stripe_checkout_session_id String?           @db.VarChar
+  stripe_payment_intent_id   String?           @db.VarChar
+  stripe_charge_id           String?           @db.VarChar
+  hubrise_order_id           String?           @db.VarChar
+  hubrise_sync_status        String?           @db.VarChar
+  hubrise_last_error         String?           @db.VarChar
+  hubrise_synced_at          DateTime?         @db.Timestamptz(6)
+  hubrise_raw_status         String?           @db.VarChar
+  is_draft                   Boolean
+  items_subtotal             Decimal           @default(0) @db.Decimal(10, 2)
+  delivery_fee               Decimal           @default(0) @db.Decimal(10, 2)
+  delivery_distance_km       Decimal?          @db.Decimal(10, 2)
+  promo_code                 String?           @db.VarChar
+  discount_type              String?           @db.VarChar
+  discount_value             Decimal?          @db.Decimal(10, 2)
+  discount_amount            Decimal           @db.Decimal(10, 2)
+  amount_before_discount     Decimal           @db.Decimal(10, 2)
+  hubrise_logs               HubriseOrderLog[]
+  items                      OrderItem[]
+  address                    Address?          @relation(fields: [address_id], references: [id], onUpdate: NoAction)
+  customer                   Customer?         @relation(fields: [customer_id], references: [id], onUpdate: NoAction)
+  prepared_by_user           User?             @relation(fields: [preparing_by], references: [id], onUpdate: NoAction)
+  restaurant                 Restaurant        @relation(fields: [restaurant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  table                      Table?            @relation(fields: [table_id], references: [id], onUpdate: NoAction)
+  review_followup            ReviewFollowup?
+
+  @@index([id], map: "ix_orders_id")
+  @@map("orders")
+}
+
+model PendingOnlineOrder {
+  id                  Int        @id @default(autoincrement())
+  restaurant_id       Int
+  checkout_session_id String     @unique(map: "ix_pending_online_orders_checkout_session_id") @db.VarChar
+  /// Commande (format OrderCreate) en attente du paiement Stripe.
+  payload_json        String
+  created_at          DateTime?  @default(now()) @db.Timestamptz(6)
+  restaurant          Restaurant @relation(fields: [restaurant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([id], map: "ix_pending_online_orders_id")
+  @@map("pending_online_orders")
+}
+
+model Product {
+  id               Int          @id @default(autoincrement())
+  name             String       @db.VarChar
+  description      String?      @db.VarChar
+  price            Decimal      @db.Decimal(10, 2)
+  image_url        String?      @db.VarChar
+  category_id      Int?
+  restaurant_id    Int
+  is_available     Boolean?
+  is_deleted       Boolean?
+  available_online Boolean?
+  available_onsite Boolean?
+  group            String?      @db.VarChar
+  created_at       DateTime?    @default(now()) @db.Timestamptz(6)
+  allergens        Json         @db.Json
+  menu_options     MenuOption[]
+  order_items      OrderItem[]
+  category         Category?    @relation(fields: [category_id], references: [id], onUpdate: NoAction)
+  restaurant       Restaurant   @relation(fields: [restaurant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([id], map: "ix_products_id")
+  @@map("products")
+}
+
+model Reservation {
+  id               Int        @id @default(autoincrement())
+  restaurant_id    Int
+  full_name        String     @db.VarChar
+  email            String?    @db.VarChar
+  phone            String     @db.VarChar
+  number_of_people Int
+  reservation_date DateTime   @db.Date
+  reservation_time DateTime   @db.Time(6)
+  comment          String?    @db.VarChar
+  status           String?    @db.VarChar
+  created_at       DateTime?  @default(now()) @db.Timestamptz(6)
+  restaurant       Restaurant @relation(fields: [restaurant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([id], map: "ix_reservations_id")
+  @@map("reservations")
+}
+
+model RestaurantAnnouncement {
+  id            Int        @id @default(autoincrement())
+  restaurant_id Int
+  /// info | promotion | new_menu | exceptional_closure | warning
+  type          String     @db.VarChar
+  title         String     @db.VarChar
+  message       String
+  /// home | cart | reservation | all
+  display_scope String     @default("all") @db.VarChar
+  priority      Int        @default(0)
+  start_at      DateTime?  @db.Timestamptz(6)
+  end_at        DateTime?  @db.Timestamptz(6)
+  is_active     Boolean    @default(true)
+  created_at    DateTime?  @default(now()) @db.Timestamptz(6)
+  restaurant    Restaurant @relation(fields: [restaurant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([id], map: "ix_restaurant_announcements_id")
+  @@index([restaurant_id], map: "ix_restaurant_announcements_restaurant_id")
+  @@map("restaurant_announcements")
+}
+
+model RestaurantConfig {
+  id                  Int        @id @default(autoincrement())
+  restaurant_id       Int        @unique
+  accept_orders       Boolean?
+  preparation_time    Int?
+  midday_delivery     Boolean?
+  evening_delivery    Boolean?
+  pickup              Boolean?
+  onsite              Boolean?
+  reservation         Boolean?
+  all_you_can_eat     Boolean?
+  a_la_carte          Boolean?
+  payment_online      Boolean?
+  payment_onsite      Boolean?
+  max_delivery_km     Int?
+  printer_enabled     Boolean
+  printer_name        String?    @db.VarChar
+  printer_host        String?    @db.VarChar
+  printer_port        Int?
+  printer_paper_width Int?
+  restaurant          Restaurant @relation(fields: [restaurant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([id], map: "ix_restaurant_configs_id")
+  @@map("restaurant_configs")
+}
+
+model RestaurantPromoCode {
+  id                   Int        @id @default(autoincrement())
+  restaurant_id        Int
+  code                 String     @db.VarChar
+  /// percent | fixed
+  discount_type        String     @db.VarChar
+  discount_value       Decimal    @db.Decimal(10, 2)
+  start_at             DateTime?  @db.Timestamptz(6)
+  end_at               DateTime?  @db.Timestamptz(6)
+  is_active            Boolean    @default(true)
+  created_at           DateTime?  @default(now()) @db.Timestamptz(6)
+  minimum_order_amount Decimal?   @db.Decimal(10, 2)
+  usage_limit          Int?
+  usage_count          Int
+  restaurant           Restaurant @relation(fields: [restaurant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([code], map: "ix_restaurant_promo_codes_code")
+  @@index([id], map: "ix_restaurant_promo_codes_id")
+  @@index([restaurant_id], map: "ix_restaurant_promo_codes_restaurant_id")
+  @@map("restaurant_promo_codes")
+}
+
+model Restaurant {
+  id                                  Int                      @id @default(autoincrement())
+  name                                String                   @db.VarChar
+  phone                               String                   @db.VarChar
+  email                               String                   @db.VarChar
+  address_id                          Int?
+  stripe_id                           String?                  @db.VarChar
+  is_deleted                          Boolean?
+  created_at                          DateTime?                @default(now()) @db.Timestamptz(6)
+  timezone                            String                   @default("Europe/Paris") @db.VarChar
+  subscription_plan                   String                   @default("starter") @db.VarChar
+  ai_monthly_quota                    Int                      @default(0)
+  ai_usage_count                      Int                      @default(0)
+  ai_monthly_token_quota              Int                      @default(0)
+  ai_token_usage_count                Int                      @default(0)
+  ai_cycle_started_at                 DateTime?                @db.Timestamptz(6)
+  stripe_charges_enabled              Boolean
+  stripe_payouts_enabled              Boolean
+  stripe_details_submitted            Boolean
+  subscription_interval               String                   @db.VarChar
+  subscription_status                 String?                  @db.VarChar
+  stripe_customer_id                  String?                  @db.VarChar
+  stripe_subscription_id              String?                  @db.VarChar
+  has_tablet_rental                   Boolean
+  has_printer_rental                  Boolean
+  subscription_cancel_at_period_end   Boolean
+  subscription_current_period_ends_at DateTime?                @db.Timestamptz(6)
+  google_review_url                   String?                  @db.VarChar
+  ai_conversations                    AiConversation[]
+  all_you_can_eat_offers              AllYouCanEat[]
+  categories                          Category[]
+  customers                           Customer[]
+  delivery_tiers                      DeliveryTier[]
+  hubrise_connection                  HubriseConnection?
+  hubrise_order_logs                  HubriseOrderLog[]
+  menus                               Menu[]
+  opening_hours                       OpeningHours[]
+  orders                              Order[]
+  pending_online_orders               PendingOnlineOrder[]
+  products                            Product[]
+  reservations                        Reservation[]
+  announcements                       RestaurantAnnouncement[]
+  config                              RestaurantConfig?
+  promo_codes                         RestaurantPromoCode[]
+  address                             Address?                 @relation(fields: [address_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  review_followups                    ReviewFollowup[]
+  roles                               Role[]
+  tables                              Table[]
+
+  @@index([id], map: "ix_restaurants_id")
+  @@map("restaurants")
+}
+
+model ReviewFollowup {
+  id                  Int        @id @default(autoincrement())
+  order_id            Int        @unique
+  restaurant_id       Int
+  customer_email      String     @db.VarChar
+  customer_first_name String?    @db.VarChar
+  /// pending | sent | failed | cancelled
+  status              String     @default("pending") @db.VarChar
+  send_at             DateTime   @db.Timestamptz(6)
+  sent_at             DateTime?  @db.Timestamptz(6)
+  last_error          String?
+  created_at          DateTime?  @default(now()) @db.Timestamptz(6)
+  updated_at          DateTime?  @db.Timestamptz(6)
+  order               Order      @relation(fields: [order_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  restaurant          Restaurant @relation(fields: [restaurant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([id], map: "ix_review_followups_id")
+  @@index([order_id], map: "ix_review_followups_order_id")
+  @@index([restaurant_id], map: "ix_review_followups_restaurant_id")
+  @@map("review_followups")
+}
+
+model Role {
+  id            Int        @id @default(autoincrement())
+  restaurant_id Int
+  user_id       Int
+  /// owner | manager | staff
+  type          String     @db.VarChar
+  restaurant    Restaurant @relation(fields: [restaurant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  user          User       @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([user_id, restaurant_id])
+  @@index([id], map: "ix_roles_id")
+  @@map("roles")
+}
+
+model Table {
+  id               Int        @id @default(autoincrement())
+  restaurant_id    Int
+  table_number     String     @db.VarChar
+  number_of_people Int
+  is_available     Boolean?
+  location         String?    @db.VarChar
+  temporary        Boolean?
+  created_at       DateTime?  @default(now()) @db.Timestamptz(6)
+  updated_at       DateTime?  @db.Timestamptz(6)
+  orders           Order[]
+  restaurant       Restaurant @relation(fields: [restaurant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([id], map: "ix_tables_id")
+  @@map("tables")
+}
+
+model UserDevice {
+  id              Int      @id @default(autoincrement())
+  user_id         Int
+  expo_push_token String   @unique(map: "ix_user_devices_expo_push_token") @db.VarChar
+  platform        String?  @db.VarChar
+  device_name     String?  @db.VarChar
+  is_active       Boolean
+  created_at      DateTime @default(now()) @db.Timestamptz(6)
+  updated_at      DateTime @default(now()) @db.Timestamptz(6)
+  last_seen_at    DateTime @default(now()) @db.Timestamptz(6)
+  user            User     @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([user_id], map: "ix_user_devices_user_id")
+  @@map("user_devices")
+}
+
+model User {
+  id                  Int              @id @default(autoincrement())
+  email               String           @unique(map: "ix_users_email") @db.VarChar
+  hashed_password     String           @db.VarChar
+  first_name          String           @db.VarChar
+  last_name           String           @db.VarChar
+  phone               String?          @db.VarChar
+  expo_push_token     String?          @db.VarChar
+  created_at          DateTime?        @default(now()) @db.Timestamptz(6)
+  is_admin            Boolean?
+  notify_orders       Boolean          @default(true)
+  notify_reservations Boolean          @default(true)
+  ai_conversations    AiConversation[]
+  prepared_orders     Order[]
+  roles               Role[]
+  devices             UserDevice[]
+
+  @@index([id], map: "ix_users_id")
+  @@map("users")
+}

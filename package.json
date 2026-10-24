@@ -1,0 +1,58 @@
+{
+  "name": "back-yumco-node",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Yumco API (Node.js + Prisma), portage du backend FastAPI.",
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "build": "prisma generate && tsc -p tsconfig.build.json",
+    "start": "node dist/server.js",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "db:pull": "prisma db pull",
+    "db:generate": "prisma generate"
+  },
+  "dependencies": {
+    "@prisma/adapter-pg": "7.10.1",
+    "@prisma/client": "7.10.1",
+    "bcryptjs": "3.0.3",
+    "cloudinary": "2.11.0",
+    "cors": "2.8.6",
+    "decimal.js": "10.6.0",
+    "express": "5.3.0",
+    "jose": "6.2.12",
+    "luxon": "3.7.2",
+    "multer": "2.5.0",
+    "pdfkit": "0.20.2",
+    "pino": "10.4.0",
+    "stripe": "19.0.0",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@types/cors": "2.8.19",
+    "@types/express": "5.0.6",
+    "@types/luxon": "3.7.6",
+    "@types/multer": "2.3.0",
+    "@types/node": "24.19.1",
+    "@types/pdfkit": "0.17.6",
+    "@types/pg": "8.23.1",
+    "@types/supertest": "7.2.1",
+    "pg": "8.23.1",
+    "pino-pretty": "13.2.0",
+    "prisma": "7.10.1",
+    "supertest": "7.1.4",
+    "tsx": "4.23.15",
+    "typescript": "5.9.3",
+    "vitest": "4.1.12"
+  },
+  "allowScripts": {
+    "@prisma/engines@7.10.1": true,
+    "esbuild@0.28.2": true,
+    "fsevents@2.3.3": true,
+    "prisma@7.10.1": true
+  }
+}

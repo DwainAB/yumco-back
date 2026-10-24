@@ -1,9 +1,8 @@
-venv/
-*.pyc
-__pycache__/
+node_modules/
+dist/
+src/generated/
 .env
-.agents/
-.claude/
-.junie/
-.windsurf/
-skills-lock.json
+.env.test
+*.log
+coverage/
+.DS_Store
